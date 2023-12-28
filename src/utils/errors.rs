@@ -8,3 +8,8 @@ pub enum AllocatorError {
     ObjectAllocationFailed(String),
     ReadObjectFailed(String)
 }
+
+#[derive(Debug)]
+pub enum GCError {
+    FailedToReadObjectAt(*mut usize)
+}

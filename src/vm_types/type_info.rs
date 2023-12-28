@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::mem::{align_of, size_of};
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
@@ -9,6 +10,7 @@ pub trait TypeInfo : Send + Sync {
     fn name(&self) -> String;
     fn kind(&self) -> TypeKind;
     fn alignment(&self) -> usize;
+    fn as_any(&self) -> &dyn Any;
 }
 
 pub struct TypeDeclaration(pub String, pub Box<dyn TypeInfo>);
@@ -28,6 +30,10 @@ impl TypeInfo for TypeDeclaration {
     fn alignment(&self) -> usize {
         self.1.alignment()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -45,7 +51,11 @@ impl TypeInfo for SumType {
     }
 
     fn name(&self) -> String {
-        "Sum".to_string()
+        let mut vec = Vec::<String>::new();
+        for (name, field) in &self.0 {
+            vec.push(format!("{}{}", name, field.name()));
+        }
+        format!("{{{}}}", vec.join(", "))
     }
 
     fn kind(&self) -> TypeKind {
@@ -54,6 +64,10 @@ impl TypeInfo for SumType {
 
     fn alignment(&self) -> usize {
         self.0.get(&self.1).unwrap().alignment()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -97,6 +111,10 @@ impl TypeInfo for RecordType {
     fn alignment(&self) -> usize {
         self.0.iter().map(|(_, info)| info.alignment()).max().unwrap()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -138,6 +156,10 @@ impl TypeInfo for ProductType {
     fn alignment(&self) -> usize {
         self.0.iter().map(|info| info.alignment()).max().unwrap_or(0)
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -157,6 +179,10 @@ impl TypeInfo for NatType {
 
     fn alignment(&self) -> usize {
         8
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -178,6 +204,10 @@ impl TypeInfo for IntType {
     fn alignment(&self) -> usize {
         8
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -197,6 +227,10 @@ impl TypeInfo for ReferenceType {
 
     fn alignment(&self) -> usize {
         align_of::<usize>()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -218,6 +252,10 @@ impl TypeInfo for DoubleType {
     fn alignment(&self) -> usize {
         8
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -238,6 +276,10 @@ impl TypeInfo for CharType {
     fn alignment(&self) -> usize {
         1
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -257,5 +299,9 @@ impl TypeInfo for BoolType {
 
     fn alignment(&self) -> usize {
         1
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
