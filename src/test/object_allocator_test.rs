@@ -1,9 +1,10 @@
 use std::any::Any;
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
+use rand::Rng;
 use crate::allocator::object_allocator::ObjectAllocator;
 use crate::utils::io::{format_heterogeneous_list, format_heterogeneous_map};
-use crate::vm_types::type_info::{ProductType, RecordType, SumType, TypeInfo};
+use crate::vm_types::type_info::{ProductType, RecordType, ReferenceType, SumType, TypeInfo};
 use crate::vm_types::type_kind::TypeKind;
 use crate::vm_types::type_tokens;
 
@@ -14,7 +15,7 @@ pub unsafe fn test_obj_alloc_single(allocator: &mut ObjectAllocator) {
     let info = info.name();
     println!("{}", i);
     println!("{}", info);
-    let res_nat = allocator.write_nat_or_reference(987987987, false).unwrap();
+    let res_nat = allocator.write_nat(987987987).unwrap();
     let (info_nat, any_nat) = allocator.read_obj(res_nat).unwrap();
     let i_nat = any_nat.downcast_ref_unchecked::<u64>();
     let info_nat = info_nat.name();
@@ -86,8 +87,8 @@ pub unsafe fn test_obj_alloc_single(allocator: &mut ObjectAllocator) {
 pub unsafe fn test_obj_alloc_batch(allocator: &mut ObjectAllocator, tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>), allocated_pointers: &mut Vec<*mut usize>) {
     let (ty, data) = tuple;
     let res = match ty.kind() {
-        TypeKind::Nat => allocator.write_nat_or_reference(*data.downcast_ref_unchecked::<u64>(), false),
-        TypeKind::Reference => allocator.write_nat_or_reference(*data.downcast_ref_unchecked::<u64>(), true),
+        TypeKind::Nat => allocator.write_nat(*data.downcast_ref_unchecked::<u64>()),
+        TypeKind::Reference => allocator.write_reference(*data.downcast_ref_unchecked::<usize>(), ty.as_any().downcast_ref_unchecked::<ReferenceType>()),
         TypeKind::Int => allocator.write_int(*data.downcast_ref_unchecked::<i64>()),
         TypeKind::Double => allocator.write_double(*data.downcast_ref::<f64>().unwrap()),
         TypeKind::Char => allocator.write_char(*data.downcast_ref::<char>().unwrap()),
@@ -114,7 +115,7 @@ pub unsafe fn format_read_object(tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>)) -> S
         TypeKind::Nat =>
             format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<u64>()),
         TypeKind::Reference =>
-            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<u64>()),
+            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<usize>()),
         TypeKind::Int =>
             format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<i64>()),
         TypeKind::Double =>

@@ -12,11 +12,8 @@ pub(crate) mod vm_types;
 mod gc;
 mod test;
 
-use std::any::Any;
-use std::intrinsics::size_of;
 use crate::allocator::object_allocator::ObjectAllocator;
 use crate::test::object_allocator_test::{format_read_object, test_obj_alloc_batch};
-use crate::vm_types::type_info::*;
 
 
 // On a en fait une raison plutôt raisonnable pour ne pas implementer le soi-disant "buddy algorithm"
@@ -28,7 +25,6 @@ use crate::vm_types::type_info::*;
 // effectuée dans la phase de fragementation du collecteur d'ordures.
 
 fn main() {
-    println!("{}", size_of::<bool>());
     unsafe {
         let mut allocator = ObjectAllocator::new();
         // test::object_allocator_test::test_obj_alloc_single(&mut allocator);
@@ -43,7 +39,22 @@ fn main() {
         for i in 0..vec.len() {
             let res1 = allocator.read_obj(vec[i]).unwrap();
             let res2 = reses.get(i).unwrap();
-            println!("res1 == res2: {}", format_read_object(&res1) == format_read_object(&res2));
+            println!("res1 {}", format_read_object(&res1));
         }
     }
+    /*unsafe {
+        let mut allocator = ObjectAllocator::new();
+        // test::object_allocator_test::test_obj_alloc_single(&mut allocator);
+        let mut vec = vec![];
+        for _ in 1..=100 {
+            let res = test::mocking::mock_object(0, false).unwrap();
+            test_obj_alloc_batch(&mut allocator, &res, &mut vec);
+        }
+
+        for i in 0..vec.len() {
+            let (nx, y) = allocator.read_obj(vec[i]).unwrap();
+            let pointer_res = allocator.pointers(vec[i]).unwrap();
+            println!("{:?}", pointer_res)
+        }
+    }*/
 }

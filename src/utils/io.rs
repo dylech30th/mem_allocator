@@ -7,8 +7,10 @@ pub fn format_heterogeneous_list(list: &Vec<Arc<dyn Any>>) -> String {
     for item in list {
         if let Some(integer) = item.downcast_ref::<i64>() {
             vec.push(integer.to_string());
-        } else if let Some(natural_or_ref) = item.downcast_ref::<u64>() {
-            vec.push(natural_or_ref.to_string());
+        } else if let Some(natural) = item.downcast_ref::<u64>() {
+            vec.push(natural.to_string());
+        } else if let Some(reference) = item.downcast_ref::<usize>() {
+            vec.push(reference.to_string());
         } else if let Some(double) = item.downcast_ref::<f64>() {
             vec.push(double.to_string());
         } else if let Some(character) = item.downcast_ref::<char>() {
@@ -27,8 +29,10 @@ pub fn format_heterogeneous_map(map: &LinkedHashMap<String, Arc<dyn Any>>) -> St
     for (name, item) in map {
         if let Some(integer) = item.downcast_ref::<i64>() {
             vec.push(format!("{}: {}", name, integer));
-        } else if let Some(natural_or_ref) = item.downcast_ref::<u64>() {
-            vec.push(format!("{}: {}", name, natural_or_ref));
+        } else if let Some(natural) = item.downcast_ref::<u64>() {
+            vec.push(format!("{}: {}", name, natural));
+        } else if let Some(reference) = item.downcast_ref::<usize>() {
+            vec.push(format!("{}: {}", name, reference));
         } else if let Some(double) = item.downcast_ref::<f64>() {
             vec.push(format!("{}: {}", name, double));
         } else if let Some(character) = item.downcast_ref::<char>() {

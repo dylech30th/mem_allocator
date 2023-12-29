@@ -1,4 +1,4 @@
-use std::{alloc, any, ptr};
+use std::{alloc, ptr};
 use std::alloc::Layout;
 use std::any::Any;
 use std::mem::size_of;
@@ -15,6 +15,8 @@ pub struct ObjectAllocator {
     pub allocator: MemAllocator,
     pub allocated_objects: Vec<*mut usize>
 }
+
+pub static USE_COMPACT_LAYOUT: bool = true;
 
 impl ObjectAllocator {
     pub fn new() -> Self {
@@ -34,16 +36,22 @@ impl ObjectAllocator {
         Ok(p)
     }
 
-    pub unsafe fn write_nat_or_reference(&mut self, value: u64, is_ref: bool) -> Result<*mut usize, AllocatorError> {
+    pub unsafe fn write_nat(&mut self, value: u64) -> Result<*mut usize, AllocatorError> {
         let size_required = size_of::<usize>() + size_of::<usize>() + size_of::<u64>();
         let p = self.allocator.alloc(size_required, size_of::<usize>())? as *mut usize;
-        if is_ref {
-            p.write(TypeSig::REFERENCE);
-        } else {
-            p.write(TypeSig::NAT);
-        }
+        p.write(TypeSig::NAT);
         p.add(1).write(&type_tokens::NAT as *const NatType as usize);
         (p.add(2) as *mut u64).write(value);
+        self.allocated_objects.push(p);
+        Ok(p)
+    }
+
+    pub unsafe fn write_reference(&mut self, value: usize, type_info: &ReferenceType) -> Result<*mut usize, AllocatorError> {
+        let size_required = size_of::<usize>() + size_of::<usize>() + size_of::<u64>();
+        let p = self.allocator.alloc(size_required, size_of::<usize>())? as *mut usize;
+        p.write(TypeSig::REFERENCE);
+        p.add(1).write(self.heap_allocated_type_info(type_info) as usize);
+        p.add(2).write(value);
         self.allocated_objects.push(p);
         Ok(p)
     }
@@ -89,8 +97,10 @@ impl ObjectAllocator {
             let field_ptr = (data_ptr as *mut u8).add(type_info.alignment_table()[name]);
             if let Some(integer) = field.downcast_ref::<i64>() {
                 (field_ptr as *mut i64).write(*integer);
-            } else if let Some(natural_or_ref) = field.downcast_ref::<u64>() {
-                (field_ptr as *mut u64).write(*natural_or_ref);
+            } else if let Some(natural) = field.downcast_ref::<u64>() {
+                (field_ptr as *mut u64).write(*natural);
+            } else if let Some(reference) = field.downcast_ref::<usize>() {
+                (field_ptr as *mut usize).write(*reference);
             } else if let Some(double) = field.downcast_ref::<f64>() {
                 (field_ptr as *mut f64).write(*double);
             } else if let Some(character) = field.downcast_ref::<char>() {
@@ -135,8 +145,10 @@ impl ObjectAllocator {
             let field_ptr = (data_ptr as *mut u8).add(alignments[i]);
             if let Some(integer) = field.downcast_ref::<i64>() {
                 (field_ptr as *mut i64).write(*integer);
-            } else if let Some(natural_or_ref) = field.downcast_ref::<u64>() {
-                (field_ptr as *mut u64).write(*natural_or_ref);
+            } else if let Some(natural) = field.downcast_ref::<u64>() {
+                (field_ptr as *mut u64).write(*natural);
+            } else if let Some(reference) = field.downcast_ref::<usize>() {
+                (field_ptr as *mut usize).write(*reference);
             } else if let Some(double) = field.downcast_ref::<f64>() {
                 (field_ptr as *mut f64).write(*double);
             } else if let Some(character) = field.downcast_ref::<char>() {
@@ -175,6 +187,12 @@ impl ObjectAllocator {
                 let p_value = p_type_info.add(1) as *const u64;
                 Ok((Arc::new(*nat_type), Arc::new(*p_value)))
             },
+            _ if first_byte == TypeSig::REFERENCE => {
+                let p_type_info = p.add(1);
+                let ref_type = *p_type_info as *const ReferenceType;
+                let p_value = p_type_info.add(1) as *const usize;
+                Ok((Arc::new(*ref_type), Arc::new(*p_value)))
+            },
             _ if first_byte == TypeSig::DOUBLE => {
                 let p_type_info = p.add(1);
                 let double_type = *p_type_info as *const DoubleType;
@@ -210,11 +228,12 @@ impl ObjectAllocator {
                 for (name, field) in fields.iter() { // data fields
                     let field_ptr = (p.add(2) as *mut u8).add(alignment_table[name]);
                     let value: Arc<dyn Any> = match field.kind() {
-                        TypeKind::Nat | TypeKind::Reference => Arc::new(ptr::read_unaligned(field_ptr as *const u64)),
-                        TypeKind::Int => Arc::new(ptr::read_unaligned(field_ptr as *const i64)),
-                        TypeKind::Double => Arc::new(ptr::read_unaligned(field_ptr as *const f64)),
+                        TypeKind::Nat => Arc::new(ptr::read_unaligned(field_ptr.cast::<u64>())),
+                        TypeKind::Int => Arc::new(ptr::read_unaligned(field_ptr.cast::<i64>())),
+                        TypeKind::Double => Arc::new(ptr::read_unaligned(field_ptr.cast::<f64>())),
                         TypeKind::Char => Arc::new(ptr::read_unaligned(field_ptr) as char),
-                        TypeKind::Bool => Arc::new(ptr::read_unaligned(field_ptr as *const bool)),
+                        TypeKind::Bool => Arc::new(ptr::read_unaligned(field_ptr.cast::<bool>())),
+                        TypeKind::Reference => Arc::new(ptr::read_unaligned(field_ptr.cast::<usize>())),
                         _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
                     };
                     map.insert(name.clone(), value);
@@ -241,11 +260,12 @@ impl ObjectAllocator {
         for (i, field) in fields.iter().enumerate() { // data fields
             let field_ptr = (p.add(2) as *mut u8).add(alignment[i]);
             let value: Arc<dyn Any> = match field.kind() {
-                TypeKind::Nat | TypeKind::Reference => Arc::new(ptr::read_unaligned(field_ptr as *const u64)),
-                TypeKind::Int => Arc::new(ptr::read_unaligned(field_ptr as *const i64)),
-                TypeKind::Double => Arc::new(ptr::read_unaligned(field_ptr as *const f64)),
+                TypeKind::Nat => Arc::new(ptr::read_unaligned(field_ptr.cast::<u64>())),
+                TypeKind::Int => Arc::new(ptr::read_unaligned(field_ptr.cast::<i64>())),
+                TypeKind::Double => Arc::new(ptr::read_unaligned(field_ptr.cast::<f64>())),
                 TypeKind::Char => Arc::new(ptr::read_unaligned(field_ptr) as char),
-                TypeKind::Bool => Arc::new(ptr::read_unaligned(field_ptr as *const bool)),
+                TypeKind::Bool => Arc::new(ptr::read_unaligned(field_ptr.cast::<bool>())),
+                TypeKind::Reference => Arc::new(ptr::read_unaligned(field_ptr.cast::<usize>())),
                 _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
             };
             vec.push(value);

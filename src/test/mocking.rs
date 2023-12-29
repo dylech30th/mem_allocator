@@ -1,11 +1,10 @@
 use std::any::Any;
 use std::sync::Arc;
-use std::{f32, u16};
 use linked_hash_map::LinkedHashMap;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::Rng;
 use rand::seq::IteratorRandom;
-use crate::vm_types::type_info::{ProductType, RecordType, SumType, TypeInfo};
+use crate::vm_types::type_info::{ProductType, RecordType, ReferenceType, SumType, TypeInfo};
 use crate::vm_types::type_sig::TypeSig;
 use crate::vm_types::type_tokens;
 
@@ -53,16 +52,20 @@ pub fn mock_object(recursion_depth: u32, is_in_complex_type: bool) -> Result<(Ar
     };
 
     match random {
-        TypeSig::NAT | TypeSig::REFERENCE =>
-            Ok((Arc::new(type_tokens::NAT), Arc::new(rand::thread_rng().gen_range(u8::MIN..=u8::MAX) as u64))),
+        TypeSig::NAT =>
+            Ok((Arc::new(type_tokens::NAT), Arc::new(rand::thread_rng().gen_range(u64::MIN..=u64::MAX)))),
         TypeSig::INT =>
-            Ok((Arc::new(type_tokens::INT), Arc::new(rand::thread_rng().gen_range(i8::MIN..=i8::MAX) as i64))),
+            Ok((Arc::new(type_tokens::INT), Arc::new(rand::thread_rng().gen_range(i64::MIN..=i64::MAX)))),
         TypeSig::DOUBLE =>
-            Ok((Arc::new(type_tokens::DOUBLE), Arc::new(rand::thread_rng().gen_range(-1000f64..=1000f64)))),
+            Ok((Arc::new(type_tokens::DOUBLE), Arc::new(rand::thread_rng().gen_range(-999999999.9999f64..=999999999.9999f64)))),
         TypeSig::CHAR =>
             Ok((Arc::new(type_tokens::CHAR), Arc::new(rand::thread_rng().gen_range('a'..='z')))),
         TypeSig::BOOL =>
             Ok((Arc::new(type_tokens::BOOL), Arc::new(rand::thread_rng().gen_bool(0.5)))),
+        TypeSig::REFERENCE => {
+            let ty_rand = ReferenceType(rand::thread_rng().gen_range(1..=9) as usize);
+            Ok((Arc::new(ty_rand), Arc::new(rand::thread_rng().gen_range(u64::MIN..=u64::MAX) as usize)))
+        }
         TypeSig::PRODUCT => {
             let (ty, list) = mock_product();
             Ok((Arc::new(ty), Arc::new(list)))

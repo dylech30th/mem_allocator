@@ -2,8 +2,10 @@ use std::any::Any;
 use std::mem::{align_of, size_of};
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
+use crate::allocator::object_allocator;
 use crate::utils::iter_ext::IterExt;
 use crate::vm_types::type_kind::TypeKind;
+use crate::vm_types::type_sig::TypeSig;
 
 pub trait TypeInfo : Send + Sync {
     fn size(&self) -> usize;
@@ -178,7 +180,7 @@ impl TypeInfo for NatType {
     }
 
     fn alignment(&self) -> usize {
-        8
+        size_of::<u64>()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -202,7 +204,7 @@ impl TypeInfo for IntType {
     }
 
     fn alignment(&self) -> usize {
-        8
+        size_of::<i64>()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -210,15 +212,15 @@ impl TypeInfo for IntType {
     }
 }
 
-#[derive(Clone)]
-pub struct ReferenceType(Arc<dyn TypeInfo>);
+#[derive(Clone, Copy)]
+pub struct ReferenceType(pub usize);
 impl TypeInfo for ReferenceType {
     fn size(&self) -> usize {
         size_of::<usize>()
     }
 
     fn name(&self) -> String {
-        format!("&{}", &self.0.name()).to_string()
+        format!("&{}", TypeSig::type_sig_to_string(self.0)).to_string()
     }
 
     fn kind(&self) -> TypeKind {
@@ -250,7 +252,7 @@ impl TypeInfo for DoubleType {
     }
 
     fn alignment(&self) -> usize {
-        8
+        size_of::<f64>()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -262,7 +264,11 @@ impl TypeInfo for DoubleType {
 pub struct CharType;
 impl TypeInfo for CharType {
     fn size(&self) -> usize {
-        1
+        if object_allocator::USE_COMPACT_LAYOUT {
+            1
+        } else {
+            size_of::<char>()
+        }
     }
 
     fn name(&self) -> String {
@@ -274,7 +280,11 @@ impl TypeInfo for CharType {
     }
 
     fn alignment(&self) -> usize {
-        1
+        if object_allocator::USE_COMPACT_LAYOUT {
+            1
+        } else {
+            size_of::<usize>()
+        }
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -298,7 +308,11 @@ impl TypeInfo for BoolType {
     }
 
     fn alignment(&self) -> usize {
-        1
+        if object_allocator::USE_COMPACT_LAYOUT {
+            1
+        } else {
+            size_of::<usize>()
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

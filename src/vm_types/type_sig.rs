@@ -29,4 +29,19 @@ impl TypeSig {
     pub const PRODUCT: usize = 7;
     pub const RECORD: usize = 8;
     pub const SUM: usize = 9;
+
+    pub fn type_sig_to_string(sig: usize) -> &'static str {
+        match sig {
+            Self::NAT => "Nat",
+            Self::INT => "Int",
+            Self::DOUBLE => "Double",
+            Self::CHAR => "Char",
+            Self::BOOL => "Bool",
+            Self::REFERENCE => "Reference",
+            Self::PRODUCT => "$Product",
+            Self::RECORD => "$Record",
+            Self::SUM => "$Sum",
+            _ => unreachable!()
+        }
+    }
 }
