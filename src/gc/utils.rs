@@ -27,7 +27,6 @@ impl ObjectAllocatorExt for ObjectAllocator {
             },
             TypeSig::PRODUCT => {
                 let type_info = *obj_start.add(1) as *const ProductType;
-                println!("{}", (*type_info).0.iter().any(|x| x.kind() == TypeKind::Reference));
                 Ok(read_product_pointers(&*type_info))
             },
             TypeSig::RECORD => {

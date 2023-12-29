@@ -134,7 +134,7 @@ impl ObjectAllocator {
     }
 
     // noinspection all
-    unsafe fn write_product_data(&self, data: &[Arc<dyn Any>], alignments: &[usize], data_ptr: *mut usize) -> Result<(), AllocatorError> {
+    unsafe fn write_product_data(&mut self, data: &[Arc<dyn Any>], alignments: &[usize], data_ptr: *mut usize) -> Result<(), AllocatorError> {
         if data.len() != alignments.len() {
             return Err(AllocatorError::ProductSizeMismatch);
         }
@@ -172,7 +172,7 @@ impl ObjectAllocator {
 
     // noinspection ALL
     #[allow(clippy::type_complexity)]
-    pub unsafe fn read_obj(&self, p: *mut usize) -> Result<(Arc<dyn TypeInfo>, Arc<dyn Any>), AllocatorError> {
+    pub unsafe fn read_obj(&mut self, p: *mut usize) -> Result<(Arc<dyn TypeInfo>, Arc<dyn Any>), AllocatorError> {
         let first_byte = *p;
         match first_byte {
             _ if first_byte == TypeSig::INT => {

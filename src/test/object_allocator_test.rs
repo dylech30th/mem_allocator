@@ -84,9 +84,9 @@ pub unsafe fn test_obj_alloc_single(allocator: &mut ObjectAllocator) {
     println!("{}", info_sum);
 }
 
-pub unsafe fn test_obj_alloc_batch(allocator: &mut ObjectAllocator, tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>), allocated_pointers: &mut Vec<*mut usize>) {
+pub unsafe fn test_obj_alloc_batch(allocator: &mut ObjectAllocator, tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>)) -> *mut usize {
     let (ty, data) = tuple;
-    let res = match ty.kind() {
+    match ty.kind() {
         TypeKind::Nat => allocator.write_nat(*data.downcast_ref_unchecked::<u64>()),
         TypeKind::Reference => allocator.write_reference(*data.downcast_ref_unchecked::<usize>(), ty.as_any().downcast_ref_unchecked::<ReferenceType>()),
         TypeKind::Int => allocator.write_int(*data.downcast_ref_unchecked::<i64>()),
@@ -105,8 +105,7 @@ pub unsafe fn test_obj_alloc_batch(allocator: &mut ObjectAllocator, tuple: &(Arc
             let sum = ty.as_any().downcast_ref::<SumType>().unwrap();
             allocator.write_sum(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap(), sum)
         }
-    }.expect("Allocation failed");
-    allocated_pointers.push(res);
+    }.expect("Allocation failed")
 }
 
 pub unsafe fn format_read_object(tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>)) -> String {
