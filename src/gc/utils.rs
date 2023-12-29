@@ -9,6 +9,7 @@ pub trait ObjectAllocatorExt {
 }
 
 impl ObjectAllocatorExt for ObjectAllocator {
+    // Récupérer tous les pointeurs dont les objets alloués contient.
     unsafe fn pointers(&self, obj_start: *mut usize) -> Result<Vec<*mut usize>, GCError> {
         let read_product_pointers = |type_info: &ProductType| -> Vec<*mut usize> {
             type_info.0.iter().enumerate()

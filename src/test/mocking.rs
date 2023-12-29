@@ -1,83 +1,127 @@
 use std::any::Any;
+use std::collections::HashMap;
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::Rng;
 use rand::seq::IteratorRandom;
+use crate::allocator::object_allocator::ObjectAllocator;
 use crate::vm_types::type_info::{ProductType, RecordType, ReferenceType, SumType, TypeInfo};
+use crate::vm_types::type_kind::TypeKind;
 use crate::vm_types::type_sig::TypeSig;
 use crate::vm_types::type_tokens;
 
-pub fn mock_object(recursion_depth: u32, is_in_complex_type: bool) -> Result<(Arc<dyn TypeInfo>, Arc<dyn Any>), ()> {
-    let random = if recursion_depth <= 3 && !is_in_complex_type {
-        rand::thread_rng().gen_range(1..=9)
-    } else {
-        rand::thread_rng().gen_range(1..=6)
-    };
-    let mock_product = || -> (ProductType, Vec<Arc<dyn Any>>) {
-        let size = rand::thread_rng().gen_range(1..=10);
-        let mut vec = Vec::<Arc<dyn Any>>::new();
-        let mut type_vec = Vec::new();
-        for i in 0..size {
-            let (ty, any) = mock_object(recursion_depth + 1, true).unwrap();
-            type_vec.push(ty.into());
-            vec.push(any);
-        }
-        (ProductType(type_vec), vec)
-    };
-    let mock_record = || -> (RecordType, LinkedHashMap<String, Arc<dyn Any>>) {
-        let size = rand::thread_rng().gen_range(1..=10);
-        let mut data_map = LinkedHashMap::new();
-        let mut type_map = LinkedHashMap::new();
-        for i in 0..size {
-            let (ty, any) = mock_object(recursion_depth + 1, true).unwrap();
-            let random_name = Alphanumeric.sample_string(&mut rand::thread_rng(), 10);
-            type_map.insert(random_name.clone(), ty.into());
-            data_map.insert(random_name.clone(), any);
-        }
-        (RecordType(Arc::new(type_map)), data_map)
-    };
-    let mock_sum = || -> (SumType, Vec<Arc<dyn Any>>) {
-        let size = rand::thread_rng().gen_range(1..=10);
-        let mut type_map = LinkedHashMap::new();
-        let mut data_map = LinkedHashMap::new();
-        for _ in 0..size {
-            let case_name = Alphanumeric.sample_string(&mut rand::thread_rng(), 10);
-            let (product, data) = mock_product();
-            type_map.insert(case_name.clone(), Arc::new(product));
-            data_map.insert(case_name.clone(), data);
-        }
-        let selected = type_map.keys().choose(&mut rand::thread_rng()).unwrap();
-        (SumType(type_map.clone(), selected.clone()), data_map.get(selected).unwrap().clone())
-    };
+// Cette structure nous aide à mocker les reférences
+pub struct ObjectMocker {
+    pub allocator: ObjectAllocator,
+    pub mocked_objects_ptrs: Vec<(TypeKind, *mut usize)>
+}
 
-    match random {
-        TypeSig::NAT =>
-            Ok((Arc::new(type_tokens::NAT), Arc::new(rand::thread_rng().gen_range(u64::MIN..=u64::MAX)))),
-        TypeSig::INT =>
-            Ok((Arc::new(type_tokens::INT), Arc::new(rand::thread_rng().gen_range(i64::MIN..=i64::MAX)))),
-        TypeSig::DOUBLE =>
-            Ok((Arc::new(type_tokens::DOUBLE), Arc::new(rand::thread_rng().gen_range(-999999999.9999f64..=999999999.9999f64)))),
-        TypeSig::CHAR =>
-            Ok((Arc::new(type_tokens::CHAR), Arc::new(rand::thread_rng().gen_range('a'..='z')))),
-        TypeSig::BOOL =>
-            Ok((Arc::new(type_tokens::BOOL), Arc::new(rand::thread_rng().gen_bool(0.5)))),
-        TypeSig::REFERENCE => {
-            let ty_rand = ReferenceType(rand::thread_rng().gen_range(1..=9) as usize);
-            Ok((Arc::new(ty_rand), Arc::new(rand::thread_rng().gen_range(u64::MIN..=u64::MAX) as usize)))
+pub struct MockResult(pub (Arc<dyn TypeInfo>, Arc<dyn Any>), pub *mut usize);
+
+impl ObjectMocker {
+    pub fn new() -> ObjectMocker {
+        ObjectMocker {
+            allocator: ObjectAllocator::new(),
+            mocked_objects_ptrs: Vec::new()
         }
-        TypeSig::PRODUCT => {
-            let (ty, list) = mock_product();
-            Ok((Arc::new(ty), Arc::new(list)))
-        },
-        TypeSig::RECORD => {
-            let (ty, map) = mock_record();
-            Ok((Arc::new(ty), Arc::new(map)))
-        },
-        TypeSig::SUM => {
-            let (ty, list) = mock_sum();
-            Ok((Arc::new(ty), Arc::new(list)))
+    }
+
+    pub unsafe fn mock_and_allocate_object(&mut self) -> Result<MockResult, String> {
+        let obj = self.mock_object(3, false)
+            .map_err(|_| "Failed to mock object".to_string())?;
+        let allocated = self.allocator.allocate_general(&obj)
+            .map_err(|x| format!("Failed to allocate object while mocking: {:?}", x))?;
+        self.mocked_objects_ptrs.push((obj.0.kind(), allocated));
+        Ok(MockResult(obj, allocated))
+    }
+
+    fn gen_random(&self, recursion_depth: u32, is_in_complex_type: bool) -> usize {
+        loop {
+            let random = if recursion_depth <= 3 && !is_in_complex_type {
+                rand::thread_rng().gen_range(1..=9)
+            } else {
+                rand::thread_rng().gen_range(1..=6)
+            };
+            if random == TypeSig::REFERENCE && self.mocked_objects_ptrs.len() < 10 {
+                continue
+            } else {
+                return random
+            }
         }
-        _ => Err(())
+    }
+
+    unsafe fn mock_reference(&self) -> Result<(Arc<dyn TypeInfo>, Arc<dyn Any>), ()> {
+        let (type_kind, ptr) = self.mocked_objects_ptrs.iter().choose(&mut rand::thread_rng()).unwrap();
+        let ty = ReferenceType(type_kind.to_type_sig());
+        Ok((Arc::new(ty), Arc::new(**ptr)))
+    }
+
+    pub unsafe fn mock_object(&self, recursion_depth: u32, is_in_complex_type: bool) -> Result<(Arc<dyn TypeInfo>, Arc<dyn Any>), ()> {
+        let random = self.gen_random(recursion_depth, is_in_complex_type);
+        let mock_product = || -> (ProductType, Vec<Arc<dyn Any>>) {
+            let size = rand::thread_rng().gen_range(1..=10);
+            let mut vec = Vec::<Arc<dyn Any>>::new();
+            let mut type_vec = Vec::new();
+            for _ in 0..size {
+                let (ty, any) = self.mock_object(recursion_depth + 1, true).unwrap();
+                type_vec.push(ty);
+                vec.push(any);
+            }
+            (ProductType(type_vec), vec)
+        };
+        let mock_record = || -> (RecordType, LinkedHashMap<String, Arc<dyn Any>>) {
+            let size = rand::thread_rng().gen_range(1..=10);
+            let mut data_map = LinkedHashMap::new();
+            let mut type_map = LinkedHashMap::new();
+            for _ in 0..size {
+                let (ty, any) = self.mock_object(recursion_depth + 1, true).unwrap();
+                let random_name = Alphanumeric.sample_string(&mut rand::thread_rng(), 10);
+                type_map.insert(random_name.clone(), ty);
+                data_map.insert(random_name.clone(), any);
+            }
+            (RecordType(Arc::new(type_map)), data_map)
+        };
+        let mock_sum = || -> (SumType, Vec<Arc<dyn Any>>) {
+            let size = rand::thread_rng().gen_range(1..=10);
+            let mut type_map = LinkedHashMap::new();
+            let mut data_map = LinkedHashMap::new();
+            for _ in 0..size {
+                let case_name = Alphanumeric.sample_string(&mut rand::thread_rng(), 10);
+                let (product, data) = mock_product();
+                type_map.insert(case_name.clone(), Arc::new(product));
+                data_map.insert(case_name.clone(), data);
+            }
+            let selected = type_map.keys().choose(&mut rand::thread_rng()).unwrap();
+            (SumType(type_map.clone(), selected.clone()), data_map.get(selected).unwrap().clone())
+        };
+
+        match random {
+            TypeSig::NAT =>
+                Ok((Arc::new(type_tokens::NAT), Arc::new(rand::thread_rng().gen_range(u64::MIN..=u64::MAX)))),
+            TypeSig::INT =>
+                Ok((Arc::new(type_tokens::INT), Arc::new(rand::thread_rng().gen_range(i64::MIN..=i64::MAX)))),
+            TypeSig::DOUBLE =>
+                Ok((Arc::new(type_tokens::DOUBLE), Arc::new(rand::thread_rng().gen_range(-999999999.9999f64..=999999999.9999f64)))),
+            TypeSig::CHAR =>
+                Ok((Arc::new(type_tokens::CHAR), Arc::new(rand::thread_rng().gen_range('a'..='z')))),
+            TypeSig::BOOL =>
+                Ok((Arc::new(type_tokens::BOOL), Arc::new(rand::thread_rng().gen_bool(0.5)))),
+            TypeSig::REFERENCE =>
+                self.mock_reference(),
+            TypeSig::PRODUCT => {
+                let (ty, list) = mock_product();
+                Ok((Arc::new(ty), Arc::new(list)))
+            },
+            TypeSig::RECORD => {
+                let (ty, map) = mock_record();
+                Ok((Arc::new(ty), Arc::new(map)))
+            },
+            TypeSig::SUM => {
+                let (ty, list) = mock_sum();
+                Ok((Arc::new(ty), Arc::new(list)))
+            }
+            _ => Err(())
+        }
     }
 }

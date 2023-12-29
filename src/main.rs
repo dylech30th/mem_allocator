@@ -12,11 +12,6 @@ pub(crate) mod vm_types;
 mod gc;
 mod test;
 
-use crate::allocator::object_allocator::ObjectAllocator;
-use crate::gc::utils::ObjectAllocatorExt;
-use crate::test::object_allocator_test::{format_read_object, test_obj_alloc_batch};
-
-
 // On a en fait une raison plutôt raisonnable pour ne pas implementer le soi-disant "buddy algorithm"
 // D'abord, le buddy algorithm a pour effet de reduire la fragmentation de la mémoire, mais dans un heap
 // tous les objets qui on va allouer a pour taille de puissance de 2, donc il n'y a pas de fragmentation

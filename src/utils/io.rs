@@ -1,6 +1,8 @@
 use std::any::Any;
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
+use crate::vm_types::type_info::{SumType, TypeInfo};
+use crate::vm_types::type_kind::TypeKind;
 
 pub fn format_heterogeneous_list(list: &Vec<Arc<dyn Any>>) -> String {
     let mut vec: Vec<String> = vec![];
@@ -44,4 +46,31 @@ pub fn format_heterogeneous_map(map: &LinkedHashMap<String, Arc<dyn Any>>) -> St
         }
     }
     format!("[{}]", vec.join(", "))
+}
+
+pub unsafe fn format_read_object(tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>)) -> String {
+    let (ty, data) = tuple;
+    match ty.kind() {
+        TypeKind::Nat =>
+            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<u64>()),
+        TypeKind::Reference =>
+            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<usize>()),
+        TypeKind::Int =>
+            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<i64>()),
+        TypeKind::Double =>
+            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<f64>()),
+        TypeKind::Char =>
+            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<char>()),
+        TypeKind::Bool =>
+            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<bool>()),
+        TypeKind::Product =>
+            format!("Type: {}, data: {}", ty.name(), format_heterogeneous_list(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap())),
+        TypeKind::Record =>
+            format!("Type: {}, data: {}", ty.name(), format_heterogeneous_map(data.downcast_ref::<LinkedHashMap<String, Arc<dyn Any>>>().unwrap())),
+        TypeKind::Sum =>
+            format!("Type: {}, selected: {}, data: {}",
+                    ty.name(),
+                    ty.as_any().downcast_ref_unchecked::<SumType>().1,
+                    format_heterogeneous_list(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap())),
+    }
 }

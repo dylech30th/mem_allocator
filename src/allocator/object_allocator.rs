@@ -234,7 +234,10 @@ impl ObjectAllocator {
                         TypeKind::Char => Arc::new(ptr::read_unaligned(field_ptr) as char),
                         TypeKind::Bool => Arc::new(ptr::read_unaligned(field_ptr.cast::<bool>())),
                         TypeKind::Reference => Arc::new(ptr::read_unaligned(field_ptr.cast::<usize>())),
-                        _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
+                        _ => {
+                            println!("{:?}", field.kind());
+                            return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()));
+                        }
                     };
                     map.insert(name.clone(), value);
                 }
@@ -253,7 +256,6 @@ impl ObjectAllocator {
         }
     }
 
-
     // noinspection all
     unsafe fn read_product(&self, fields: &[Arc<dyn TypeInfo>], alignment: &[usize], p: *const usize) -> Result<Vec<Arc<dyn Any>>, AllocatorError> {
         let mut vec = Vec::<Arc<dyn Any>>::new();
@@ -266,10 +268,37 @@ impl ObjectAllocator {
                 TypeKind::Char => Arc::new(ptr::read_unaligned(field_ptr) as char),
                 TypeKind::Bool => Arc::new(ptr::read_unaligned(field_ptr.cast::<bool>())),
                 TypeKind::Reference => Arc::new(ptr::read_unaligned(field_ptr.cast::<usize>())),
-                _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
+                _ => {
+                    println!("{:?}", field.kind());
+                    return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
+                }
             };
             vec.push(value);
         }
         Ok(vec)
+    }
+
+    pub unsafe fn allocate_general(&mut self, tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>)) -> Result<*mut usize, AllocatorError> {
+        let (ty, data) = tuple;
+        match ty.kind() {
+            TypeKind::Nat => self.write_nat(*data.downcast_ref_unchecked::<u64>()),
+            TypeKind::Reference => self.write_reference(*data.downcast_ref_unchecked::<usize>(), ty.as_any().downcast_ref_unchecked::<ReferenceType>()),
+            TypeKind::Int => self.write_int(*data.downcast_ref_unchecked::<i64>()),
+            TypeKind::Double => self.write_double(*data.downcast_ref::<f64>().unwrap()),
+            TypeKind::Char => self.write_char(*data.downcast_ref::<char>().unwrap()),
+            TypeKind::Bool => self.write_bool(*data.downcast_ref::<bool>().unwrap()),
+            TypeKind::Product => {
+                let prod = ty.as_any().downcast_ref::<ProductType>().unwrap();
+                self.write_product(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap(), prod)
+            },
+            TypeKind::Record => {
+                let record = ty.as_any().downcast_ref::<RecordType>().unwrap();
+                self.write_record(data.downcast_ref::<LinkedHashMap<String, Arc<dyn Any>>>().unwrap(), record)
+            },
+            TypeKind::Sum => {
+                let sum = ty.as_any().downcast_ref::<SumType>().unwrap();
+                self.write_sum(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap(), sum)
+            }
+        }
     }
 }

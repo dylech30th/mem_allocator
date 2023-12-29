@@ -1,3 +1,5 @@
+use crate::vm_types::type_kind::TypeKind;
+
 #[non_exhaustive]
 pub struct TypeSig;
 
@@ -41,6 +43,22 @@ impl TypeSig {
             Self::PRODUCT => "$Product",
             Self::RECORD => "$Record",
             Self::SUM => "$Sum",
+            _ => unreachable!()
+        }
+    }
+
+    // noinspection all
+    pub fn to_type_kind(sig: usize) -> TypeKind {
+        match sig {
+            Self::NAT => TypeKind::Nat,
+            Self::INT => TypeKind::Int,
+            Self::DOUBLE => TypeKind::Double,
+            Self::CHAR => TypeKind::Char,
+            Self::BOOL => TypeKind::Bool,
+            Self::REFERENCE => TypeKind::Reference,
+            Self::PRODUCT => TypeKind::Product,
+            Self::RECORD => TypeKind::Record,
+            Self::SUM => TypeKind::Sum,
             _ => unreachable!()
         }
     }
