@@ -52,23 +52,23 @@ pub unsafe fn format_read_object(tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>)) -> S
     let (ty, data) = tuple;
     match ty.kind() {
         TypeKind::Nat =>
-            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<u64>()),
+            format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<u64>()),
         TypeKind::Reference =>
-            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<usize>()),
+            format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<usize>()),
         TypeKind::Int =>
-            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<i64>()),
+            format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<i64>()),
         TypeKind::Double =>
-            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<f64>()),
+            format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<f64>()),
         TypeKind::Char =>
-            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<char>()),
+            format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<char>()),
         TypeKind::Bool =>
-            format!("Type: {}, data: {}", ty.name(), data.downcast_ref_unchecked::<bool>()),
+            format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<bool>()),
         TypeKind::Product =>
-            format!("Type: {}, data: {}", ty.name(), format_heterogeneous_list(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap())),
+            format!("Type: {}, données: {}", ty.name(), format_heterogeneous_list(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap())),
         TypeKind::Record =>
-            format!("Type: {}, data: {}", ty.name(), format_heterogeneous_map(data.downcast_ref::<LinkedHashMap<String, Arc<dyn Any>>>().unwrap())),
+            format!("Type: {}, données: {}", ty.name(), format_heterogeneous_map(data.downcast_ref::<LinkedHashMap<String, Arc<dyn Any>>>().unwrap())),
         TypeKind::Sum =>
-            format!("Type: {}, selected: {}, data: {}",
+            format!("Type: {}, choisi: {}, données: {}",
                     ty.name(),
                     ty.as_any().downcast_ref_unchecked::<SumType>().1,
                     format_heterogeneous_list(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap())),

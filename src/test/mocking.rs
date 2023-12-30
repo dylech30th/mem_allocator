@@ -27,12 +27,14 @@ impl ObjectMocker {
         }
     }
 
+    #[allow(clippy::clone_on_copy)]
     pub unsafe fn mock_and_allocate_object(&mut self) -> Result<MockResult, String> {
-        let obj = self.mock_object(3, false)
+        let obj = self.mock_object(0, false)
             .map_err(|_| "Failed to mock object".to_string())?;
         let allocated = self.allocator.allocate_general(&obj)
             .map_err(|x| format!("Failed to allocate object while mocking: {:?}", x))?;
-        self.mocked_objects_ptrs.push((obj.0.kind(), allocated));
+        // without clone here will cause strange problems
+        self.mocked_objects_ptrs.push((obj.0.kind().clone(), allocated));
         Ok(MockResult(obj, allocated))
     }
 
@@ -51,10 +53,12 @@ impl ObjectMocker {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     unsafe fn mock_reference(&self) -> Result<(Arc<dyn TypeInfo>, Arc<dyn Any>), ()> {
+        let ptrs = &self.mocked_objects_ptrs;
         let (type_kind, ptr) = self.mocked_objects_ptrs.iter().choose(&mut rand::thread_rng()).unwrap();
         let ty = ReferenceType(type_kind.to_type_sig());
-        Ok((Arc::new(ty), Arc::new(**ptr)))
+        Ok((Arc::new(ty), Arc::new(*ptr as usize)))
     }
 
     pub unsafe fn mock_object(&self, recursion_depth: u32, is_in_complex_type: bool) -> Result<(Arc<dyn TypeInfo>, Arc<dyn Any>), ()> {

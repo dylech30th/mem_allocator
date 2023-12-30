@@ -16,7 +16,13 @@ pub struct ObjectAllocator {
     pub allocated_objects: Vec<*mut usize>
 }
 
-pub static USE_COMPACT_LAYOUT: bool = true;
+#[repr(C)]
+pub struct ObjectHeader {
+    pub type_sig: usize,
+    pub ptr_to_type_info: usize
+}
+
+pub static USE_COMPACT_LAYOUT: bool = false;
 
 impl ObjectAllocator {
     pub fn new() -> Self {
@@ -93,22 +99,37 @@ impl ObjectAllocator {
         p.write(TypeSig::RECORD);
         p.add(1).write(self.heap_allocated_type_info(type_info) as usize);
         let data_ptr = p.add(2);
-        for (name, field) in data.iter() {
+        for (name, field) in type_info.0.iter() {
             let field_ptr = (data_ptr as *mut u8).add(type_info.alignment_table()[name]);
-            if let Some(integer) = field.downcast_ref::<i64>() {
-                (field_ptr as *mut i64).write(*integer);
-            } else if let Some(natural) = field.downcast_ref::<u64>() {
-                (field_ptr as *mut u64).write(*natural);
-            } else if let Some(reference) = field.downcast_ref::<usize>() {
-                (field_ptr as *mut usize).write(*reference);
-            } else if let Some(double) = field.downcast_ref::<f64>() {
-                (field_ptr as *mut f64).write(*double);
-            } else if let Some(character) = field.downcast_ref::<char>() {
-                (field_ptr as *mut char).write(*character);
-            } else if let Some(boolean) = field.downcast_ref::<bool>() {
-                (field_ptr as *mut bool).write(*boolean);
-            } else {
-                return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()));
+            // NOTE: the cast to u8 is necessary because the pointer arithmetic is done in bytes
+            // if this is not done, the pointer arithmetic will be done in the size of the usize,
+            // that is, a two byte alignment now becomes a 16 byte alignment. A BIG LEAP FORWARD!
+            match field.kind() {
+                TypeKind::Nat => {
+                    let nat = data[name].downcast_ref::<u64>().unwrap();
+                    (field_ptr as *mut u64).write(*nat);
+                },
+                TypeKind::Int => {
+                    let int = data[name].downcast_ref::<i64>().unwrap();
+                    (field_ptr as *mut i64).write(*int);
+                },
+                TypeKind::Double => {
+                    let double = data[name].downcast_ref::<f64>().unwrap();
+                    (field_ptr as *mut f64).write(*double);
+                },
+                TypeKind::Char => {
+                    let char = data[name].downcast_ref::<char>().unwrap();
+                    (field_ptr as *mut char).write(*char);
+                },
+                TypeKind::Bool => {
+                    let bool = data[name].downcast_ref::<bool>().unwrap();
+                    (field_ptr as *mut bool).write(*bool);
+                },
+                TypeKind::Reference => {
+                    let reference = data[name].downcast_ref::<usize>().unwrap();
+                    (field_ptr as *mut usize).write(*reference);
+                },
+                _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
             }
         }
         Ok(p)
@@ -120,7 +141,7 @@ impl ObjectAllocator {
         let p = self.allocator.alloc(size_required, size_of::<usize>()).unwrap() as *mut usize;
         p.write(TypeSig::PRODUCT);
         p.add(1).write(self.heap_allocated_type_info(type_info) as usize);
-        self.write_product_data(data, &type_info.alignment_table(), p.add(2))?;
+        self.write_product_data(data, type_info, &type_info.alignment_table(), p.add(2))?;
         Ok(p)
     }
 
@@ -129,34 +150,49 @@ impl ObjectAllocator {
         let p = self.allocator.alloc(size_required, size_of::<usize>()).unwrap() as *mut usize;
         p.write(TypeSig::SUM);
         p.add(1).write(self.heap_allocated_type_info(type_info) as usize);
-        self.write_product_data(data, &type_info.alignment_table(), p.add(2))?;
+        self.write_product_data(data, type_info.0.get(&type_info.1).unwrap(), &type_info.alignment_table(), p.add(2))?;
         Ok(p)
     }
 
     // noinspection all
-    unsafe fn write_product_data(&mut self, data: &[Arc<dyn Any>], alignments: &[usize], data_ptr: *mut usize) -> Result<(), AllocatorError> {
+    unsafe fn write_product_data(&mut self, data: &[Arc<dyn Any>], type_info: &ProductType, alignments: &[usize], data_ptr: *mut usize) -> Result<(), AllocatorError> {
         if data.len() != alignments.len() {
             return Err(AllocatorError::ProductSizeMismatch);
         }
         if data.is_empty() {
             return Ok(());
         }
-        for (i, field) in data.iter().enumerate() {
-            let field_ptr = (data_ptr as *mut u8).add(alignments[i]);
-            if let Some(integer) = field.downcast_ref::<i64>() {
-                (field_ptr as *mut i64).write(*integer);
-            } else if let Some(natural) = field.downcast_ref::<u64>() {
-                (field_ptr as *mut u64).write(*natural);
-            } else if let Some(reference) = field.downcast_ref::<usize>() {
-                (field_ptr as *mut usize).write(*reference);
-            } else if let Some(double) = field.downcast_ref::<f64>() {
-                (field_ptr as *mut f64).write(*double);
-            } else if let Some(character) = field.downcast_ref::<char>() {
-                (field_ptr as *mut char).write(*character);
-            } else if let Some(boolean) = field.downcast_ref::<bool>() {
-                (field_ptr as *mut bool).write(*boolean);
-            } else {
-                return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()));
+        for (index, field) in type_info.0.iter().enumerate() {
+            // NOTE: the cast to u8 is necessary because the pointer arithmetic is done in bytes
+            // if this is not done, the pointer arithmetic will be done in the size of the usize,
+            // that is, a two byte alignment now becomes a 16 byte alignment. A BIG LEAP FORWARD!
+            let field_ptr = (data_ptr as *mut u8).add(alignments[index]);
+            match field.kind() {
+                TypeKind::Nat => {
+                    let nat = data[index].downcast_ref::<u64>().unwrap();
+                    (field_ptr as *mut u64).write(*nat);
+                },
+                TypeKind::Int => {
+                    let int = data[index].downcast_ref::<i64>().unwrap();
+                    (field_ptr as *mut i64).write(*int);
+                },
+                TypeKind::Double => {
+                    let double = data[index].downcast_ref::<f64>().unwrap();
+                    (field_ptr as *mut f64).write(*double);
+                },
+                TypeKind::Char => {
+                    let char = data[index].downcast_ref::<char>().unwrap();
+                    (field_ptr as *mut char).write(*char);
+                },
+                TypeKind::Bool => {
+                    let bool = data[index].downcast_ref::<bool>().unwrap();
+                    (field_ptr as *mut bool).write(*bool);
+                },
+                TypeKind::Reference => {
+                    let reference = data[index].downcast_ref::<usize>().unwrap();
+                    (field_ptr as *mut usize).write(*reference);
+                },
+                _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
             }
         }
         Ok(())
@@ -226,6 +262,9 @@ impl ObjectAllocator {
                 let alignment_table = (*record_type).alignment_table();
                 let mut map = LinkedHashMap::<String, Arc<dyn Any>>::new();
                 for (name, field) in fields.iter() { // data fields
+                    // NOTE: the cast to u8 is necessary because the pointer arithmetic is done in bytes
+                    // if this is not done, the pointer arithmetic will be done in the size of the usize,
+                    // that is, a two byte alignment now becomes a 16 byte alignment. A BIG LEAP FORWARD!
                     let field_ptr = (p.add(2) as *mut u8).add(alignment_table[name]);
                     let value: Arc<dyn Any> = match field.kind() {
                         TypeKind::Nat => Arc::new(ptr::read_unaligned(field_ptr.cast::<u64>())),
@@ -234,10 +273,7 @@ impl ObjectAllocator {
                         TypeKind::Char => Arc::new(ptr::read_unaligned(field_ptr) as char),
                         TypeKind::Bool => Arc::new(ptr::read_unaligned(field_ptr.cast::<bool>())),
                         TypeKind::Reference => Arc::new(ptr::read_unaligned(field_ptr.cast::<usize>())),
-                        _ => {
-                            println!("{:?}", field.kind());
-                            return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()));
-                        }
+                        _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
                     };
                     map.insert(name.clone(), value);
                 }
@@ -260,6 +296,9 @@ impl ObjectAllocator {
     unsafe fn read_product(&self, fields: &[Arc<dyn TypeInfo>], alignment: &[usize], p: *const usize) -> Result<Vec<Arc<dyn Any>>, AllocatorError> {
         let mut vec = Vec::<Arc<dyn Any>>::new();
         for (i, field) in fields.iter().enumerate() { // data fields
+            // NOTE: the cast to u8 is necessary because the pointer arithmetic is done in bytes
+            // if this is not done, the pointer arithmetic will be done in the size of the usize,
+            // that is, a two byte alignment now becomes a 16 byte alignment. A BIG LEAP FORWARD!
             let field_ptr = (p.add(2) as *mut u8).add(alignment[i]);
             let value: Arc<dyn Any> = match field.kind() {
                 TypeKind::Nat => Arc::new(ptr::read_unaligned(field_ptr.cast::<u64>())),
@@ -268,10 +307,7 @@ impl ObjectAllocator {
                 TypeKind::Char => Arc::new(ptr::read_unaligned(field_ptr) as char),
                 TypeKind::Bool => Arc::new(ptr::read_unaligned(field_ptr.cast::<bool>())),
                 TypeKind::Reference => Arc::new(ptr::read_unaligned(field_ptr.cast::<usize>())),
-                _ => {
-                    println!("{:?}", field.kind());
-                    return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
-                }
+                _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
             };
             vec.push(value);
         }

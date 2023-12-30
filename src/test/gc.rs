@@ -1,4 +1,6 @@
-use crate::gc::utils::ObjectAllocatorExt;
+use std::collections::HashSet;
+use rand::Rng;
+use crate::gc::reachability::ObjectAllocatorExt;
 use crate::test::mocking::ObjectMocker;
 
 pub unsafe fn test_pointers() {
@@ -17,12 +19,24 @@ pub unsafe fn test_pointers() {
     }
 
     // Récupérer les pointeurs dont chaque objet alloué contient.
-    let pointers = allocated_ptrs.iter().flat_map(|x| {
-        let list = obj_mocker.allocator.pointers(*x).unwrap();
-        list.iter().map(|p| **p).collect::<Vec<usize>>()
-    }).collect::<Vec<usize>>();
-
+    let pointers = obj_mocker.allocator.pointers_all(&allocated_ptrs).unwrap();
     for pointer in pointers {
         println!("{:?}", pointer);
     }
+}
+
+pub unsafe fn test_reachability() {
+    let mut obj_mocker = ObjectMocker::new();
+    let mut allocated_ptrs = vec![];
+    (0..1000).for_each(|_| {
+        let res = obj_mocker.mock_and_allocate_object().unwrap();
+        allocated_ptrs.push(res.1);
+    });
+
+    let pointers = obj_mocker.allocator.pointers_all(&allocated_ptrs).unwrap();
+    let root_objects = (0..100).map(|_| rand::thread_rng().gen_range(0..1000)).map(|i| allocated_ptrs[i]).collect::<HashSet<*mut usize>>().into_iter().collect::<Vec<*mut usize>>();
+    let reachables = obj_mocker.allocator.reachable(&root_objects).unwrap();
+
+    println!("Objets accéssibilité: {}", reachables.len());
+    println!("Tous les objets: {}", pointers.len());
 }

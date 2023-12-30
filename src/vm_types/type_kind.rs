@@ -1,6 +1,6 @@
 use crate::vm_types::type_sig::TypeSig;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TypeKind {
     Nat,
     Int,

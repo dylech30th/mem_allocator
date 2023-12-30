@@ -22,6 +22,6 @@ mod test;
 
 fn main() {
     unsafe {
-        test::gc::test_pointers()
+        test::gc::test_reachability()
     }
 }

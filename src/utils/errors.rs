@@ -11,5 +11,7 @@ pub enum AllocatorError {
 
 #[derive(Debug)]
 pub enum GCError {
-    FailedToReadObjectAt(*mut usize)
+    FailedToReadObjectAt(*mut usize),
+    InvalidRoots,
+    InvalidAddress
 }

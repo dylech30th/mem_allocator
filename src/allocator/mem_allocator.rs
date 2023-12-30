@@ -5,18 +5,20 @@ use linked_hash_map::LinkedHashMap;
 use crate::utils::errors::AllocatorError;
 use crate::utils::func_ext::identity_once;
 
-const EXPAND_FACTOR: f64 = 1.75;
+const EXPAND_FACTOR: f64 = 2f64;
 const INITIAL_SIZE: usize = 2048;
 
+#[derive(PartialEq, Eq, Hash, Copy, Clone)]
 pub struct MemRegionTracker {
     pub start: *mut u8,
     pub unallocated_start: *mut u8,
-    pub size: usize
+    pub size: usize,
 }
 
 pub struct MemAllocator {
     pub size: usize,
     pub committed_regions: LinkedHashMap<Layout, MemRegionTracker>,
+    pub expand_callback: Box<dyn FnMut(MemRegionTracker)>,
     pub available: bool
 }
 
@@ -31,8 +33,27 @@ impl MemAllocator {
         MemAllocator {
             size: 0,
             committed_regions: LinkedHashMap::new(),
+            expand_callback: Box::new(|_| ()),
             available: true
         }
+    }
+
+    pub fn new_with_callback(callback: Box<dyn FnMut(MemRegionTracker)>) -> Self {
+        MemAllocator {
+            size: 0,
+            committed_regions: LinkedHashMap::new(),
+            expand_callback: callback,
+            available: true
+        }
+    }
+
+    pub fn get_block(&self, ptr: *mut u8) -> Option<&MemRegionTracker> {
+        self.committed_regions.iter().find(|(_, tracker)| {
+            let start = tracker.start as usize;
+            let end = start + tracker.size;
+            let ptr = ptr as usize;
+            ptr >= start && ptr < end
+        }).map(|(_, tracker)| tracker)
     }
 
     unsafe fn expand(&mut self) -> Result<(), AllocatorError> {
@@ -52,6 +73,7 @@ impl MemAllocator {
             size: new_layout.size()
         };
         self.committed_regions.insert(new_layout, region);
+        (self.expand_callback)(region);
         Ok(())
     }
 

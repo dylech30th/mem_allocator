@@ -1,11 +1,10 @@
 use std::any::Any;
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
-use rand::Rng;
 use crate::allocator::object_allocator::ObjectAllocator;
-use crate::utils::io::{format_heterogeneous_list, format_heterogeneous_map};
-use crate::vm_types::type_info::{ProductType, RecordType, ReferenceType, SumType, TypeInfo};
-use crate::vm_types::type_kind::TypeKind;
+use crate::test::mocking::ObjectMocker;
+use crate::utils::io::{format_heterogeneous_list, format_read_object};
+use crate::vm_types::type_info::{ProductType, RecordType, SumType, TypeInfo};
 use crate::vm_types::type_tokens;
 
 pub unsafe fn test_obj_alloc_single(allocator: &mut ObjectAllocator) {
@@ -82,4 +81,30 @@ pub unsafe fn test_obj_alloc_single(allocator: &mut ObjectAllocator) {
     let info_sum = info_sum.name();
     println!("{}", format_heterogeneous_list(&*i_sum));
     println!("{}", info_sum);
+}
+
+pub fn test_obj_allocation_stability() {
+    unsafe {
+        let mut mocker = ObjectMocker::new();
+        // test::object_allocator_test::test_obj_alloc_single(&mut allocator);
+        let mut vec = vec![];
+        let mut reses = vec![];
+        for _ in 1..=100 {
+            let res = mocker.mock_and_allocate_object().unwrap();
+            reses.push(res.0);
+            vec.push(res.1);
+        }
+
+        for (i, ptr) in vec.iter().enumerate() {
+            let res1 = mocker.allocator.read_obj(*ptr).unwrap();
+            let res2 = reses.get(i).unwrap();
+            println!("{} == {}: {}", format_read_object(&res1), format_read_object(res2), format_read_object(&res1) == format_read_object(res2));
+        }
+
+        println!("Tous les équivalences tiennent: {}", vec.iter().zip(reses.iter()).all(|(x, y)| {
+            let res1 = mocker.allocator.read_obj(*x).unwrap();
+            let res2 = y;
+            format_read_object(&res1) == format_read_object(res2)
+        }));
+    }
 }
