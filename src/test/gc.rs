@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use rand::Rng;
+use crate::allocator::object_allocator::ObjectHeader;
 use crate::gc::reachability::ObjectAllocatorExt;
 use crate::test::mocking::ObjectMocker;
 
@@ -34,7 +35,7 @@ pub unsafe fn test_reachability() {
     });
 
     let pointers = obj_mocker.allocator.pointers_all(&allocated_ptrs).unwrap();
-    let root_objects = (0..100).map(|_| rand::thread_rng().gen_range(0..1000)).map(|i| allocated_ptrs[i]).collect::<HashSet<*mut usize>>().into_iter().collect::<Vec<*mut usize>>();
+    let root_objects = (0..100).map(|_| rand::thread_rng().gen_range(0..1000)).map(|i| allocated_ptrs[i]).collect::<HashSet<*mut ObjectHeader>>().into_iter().collect::<Vec<*mut ObjectHeader>>();
     let reachables = obj_mocker.allocator.reachable(&root_objects).unwrap();
 
     println!("Objets accéssibilité: {}", reachables.len());

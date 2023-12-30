@@ -6,12 +6,13 @@ pub enum AllocatorError {
     SizeMismatch,
     ProductSizeMismatch,
     ObjectAllocationFailed(String),
-    ReadObjectFailed(String)
+    ReadObjectFailed(String),
+    FailedToReadData(String)
 }
 
 #[derive(Debug)]
 pub enum GCError {
-    FailedToReadObjectAt(*mut usize),
+    FailedToReadObjectAt(*const usize),
     InvalidRoots,
     InvalidAddress
 }

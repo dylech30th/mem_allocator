@@ -5,7 +5,7 @@ use linked_hash_map::LinkedHashMap;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::Rng;
 use rand::seq::IteratorRandom;
-use crate::allocator::object_allocator::ObjectAllocator;
+use crate::allocator::object_allocator::{ObjectAllocator, ObjectHeader};
 use crate::vm_types::type_info::{ProductType, RecordType, ReferenceType, SumType, TypeInfo};
 use crate::vm_types::type_kind::TypeKind;
 use crate::vm_types::type_sig::TypeSig;
@@ -14,10 +14,10 @@ use crate::vm_types::type_tokens;
 // Cette structure nous aide à mocker les reférences
 pub struct ObjectMocker {
     pub allocator: ObjectAllocator,
-    pub mocked_objects_ptrs: Vec<(TypeKind, *mut usize)>
+    pub mocked_objects_ptrs: Vec<(TypeKind, *mut ObjectHeader)>
 }
 
-pub struct MockResult(pub (Arc<dyn TypeInfo>, Arc<dyn Any>), pub *mut usize);
+pub struct MockResult(pub (Arc<dyn TypeInfo>, Arc<dyn Any>), pub *mut ObjectHeader);
 
 impl ObjectMocker {
     pub fn new() -> ObjectMocker {
