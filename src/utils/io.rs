@@ -1,6 +1,8 @@
 use std::any::Any;
+use std::mem::size_of;
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
+use crate::allocator::object_allocator::ObjectHeader;
 use crate::vm_types::type_info::{SumType, TypeInfo};
 use crate::vm_types::type_kind::TypeKind;
 
@@ -12,7 +14,7 @@ pub fn format_heterogeneous_list(list: &Vec<Arc<dyn Any>>) -> String {
         } else if let Some(natural) = item.downcast_ref::<u64>() {
             vec.push(natural.to_string());
         } else if let Some(reference) = item.downcast_ref::<usize>() {
-            vec.push(reference.to_string());
+            vec.push(format!("{:x?}", reference));
         } else if let Some(double) = item.downcast_ref::<f64>() {
             vec.push(double.to_string());
         } else if let Some(character) = item.downcast_ref::<char>() {
@@ -34,7 +36,7 @@ pub fn format_heterogeneous_map(map: &LinkedHashMap<String, Arc<dyn Any>>) -> St
         } else if let Some(natural) = item.downcast_ref::<u64>() {
             vec.push(format!("{}: {}", name, natural));
         } else if let Some(reference) = item.downcast_ref::<usize>() {
-            vec.push(format!("{}: {}", name, reference));
+            vec.push(format!("{}: {:x?}", name, reference));
         } else if let Some(double) = item.downcast_ref::<f64>() {
             vec.push(format!("{}: {}", name, double));
         } else if let Some(character) = item.downcast_ref::<char>() {
@@ -54,7 +56,7 @@ pub unsafe fn format_read_object(tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>)) -> S
         TypeKind::Nat =>
             format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<u64>()),
         TypeKind::Reference =>
-            format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<usize>()),
+            format!("Type: {}, données: {:x?}", ty.name(), data.downcast_ref_unchecked::<usize>()),
         TypeKind::Int =>
             format!("Type: {}, données: {}", ty.name(), data.downcast_ref_unchecked::<i64>()),
         TypeKind::Double =>
@@ -73,4 +75,20 @@ pub unsafe fn format_read_object(tuple: &(Arc<dyn TypeInfo>, Arc<dyn Any>)) -> S
                     ty.as_any().downcast_ref_unchecked::<SumType>().1,
                     format_heterogeneous_list(data.downcast_ref::<Vec<Arc<dyn Any>>>().unwrap())),
     }
+}
+
+pub fn object_size(data_size: usize) -> usize {
+    size_of::<ObjectHeader>() + data_size
+}
+
+pub fn count_bits_set(i: u8) -> Vec<usize> {
+    let mut set_bits = vec![];
+    let mut bit = 0;
+    while bit < 8 {
+        if i >> bit & 1 == 1 {
+            set_bits.push(bit);
+        }
+        bit += 1;
+    }
+    set_bits
 }

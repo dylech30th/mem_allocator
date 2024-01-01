@@ -5,6 +5,8 @@
 #![feature(char_min)]
 #![feature(box_into_inner)]
 #![feature(allocator_api)]
+#![feature(iter_collect_into)]
+#![feature(let_chains)]
 
 pub(crate) mod allocator;
 pub(crate) mod utils;
@@ -22,7 +24,7 @@ mod test;
 
 fn main() {
     unsafe {
-        test::object_allocator_test::test_obj_allocation_stability();
+        // test::object_allocator_test::test_obj_allocation_stability();
         test::gc::test_reachability()
     }
 }

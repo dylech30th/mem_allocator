@@ -1,2 +1,2 @@
 pub mod reachability;
-mod gc;
+pub mod gc;

@@ -4,30 +4,36 @@ use std::any::Any;
 use std::mem::size_of;
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
-use crate::allocator::mem_allocator::MemAllocator;
+use crate::allocator::heap_allocator::HeapAllocator;
 use crate::utils::errors::AllocatorError;
 use crate::utils::func_ext::OptionExt;
+use crate::utils::io::object_size;
 use crate::vm_types::type_info::*;
 use crate::vm_types::type_kind::TypeKind;
 use crate::vm_types::type_sig::TypeSig;
 use crate::vm_types::type_tokens;
 
 pub struct ObjectAllocator {
-    pub allocator: MemAllocator
+    pub allocator: HeapAllocator,
+    pub allocated_objects: Vec<*mut ObjectHeader>
 }
 
 #[repr(C)]
 pub struct ObjectHeader {
     pub type_sig: usize,
-    pub ptr_to_type_info: *const dyn TypeInfo
+    pub ptr_to_type_info: *mut dyn TypeInfo
 }
 
 impl ObjectHeader {
-    pub fn new(type_sig: usize, ptr_to_type_info: *const dyn TypeInfo) -> Self {
+    pub fn new(type_sig: usize, ptr_to_type_info: *mut dyn TypeInfo) -> Self {
         ObjectHeader {
             type_sig,
             ptr_to_type_info
         }
+    }
+
+    pub fn type_sig_within_valid_range(i: usize) -> bool {
+        (TypeSig::INT..=TypeSig::SUM).contains(&i)
     }
 }
 
@@ -46,63 +52,70 @@ pub static USE_COMPACT_LAYOUT: bool = false;
 impl ObjectAllocator {
     pub fn new() -> Self {
         ObjectAllocator {
-            allocator: MemAllocator::new()
+            allocator: HeapAllocator::new(),
+            allocated_objects: Vec::new()
         }
     }
 
     pub unsafe fn write_int(&mut self, value: i64) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + size_of::<i64>();
+        let size_required = object_size(size_of::<i64>());
         let p = self.allocator.alloc(size_required, size_of::<usize>())? as *mut ObjectHeader;
-        p.write(ObjectHeader::new(TypeSig::INT, &type_tokens::INT as *const IntType));
+        p.write(ObjectHeader::new(TypeSig::INT, &type_tokens::INT as *const IntType as usize as *mut IntType));
         p.to_data_start::<i64>().write(value);
+        self.allocated_objects.push(p);
         Ok(p)
     }
 
     pub unsafe fn write_nat(&mut self, value: u64) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + size_of::<u64>();
+        let size_required = object_size(size_of::<u64>());
         let p = self.allocator.alloc(size_required, size_of::<usize>())? as *mut ObjectHeader;
-        p.write(ObjectHeader::new(TypeSig::NAT, &type_tokens::NAT as *const NatType));
+        p.write(ObjectHeader::new(TypeSig::NAT, &type_tokens::NAT as *const NatType as usize as *mut IntType));
         p.to_data_start::<u64>().write(value);
+        self.allocated_objects.push(p);
         Ok(p)
     }
 
     pub unsafe fn write_reference(&mut self, value: usize, type_info: &ReferenceType) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + size_of::<u64>();
+        let size_required = object_size(size_of::<u64>());
         let p = self.allocator.alloc(size_required, size_of::<usize>())? as *mut ObjectHeader;
-        p.write(ObjectHeader::new(TypeSig::REFERENCE, self.heap_allocated_type_info(type_info)));
+        p.write(ObjectHeader::new(TypeSig::REFERENCE, self.heap_allocated_type_info(type_info) as *mut dyn TypeInfo));
         p.to_data_start::<usize>().write(value);
+        self.allocated_objects.push(p);
         Ok(p)
     }
 
     pub unsafe fn write_double(&mut self, value: f64) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + size_of::<f64>();
+        let size_required = object_size(size_of::<f64>());
         let p = self.allocator.alloc(size_required, size_of::<usize>())? as *mut ObjectHeader;
-        p.write(ObjectHeader::new(TypeSig::DOUBLE, &type_tokens::DOUBLE as *const DoubleType));
+        p.write(ObjectHeader::new(TypeSig::DOUBLE, &type_tokens::DOUBLE as *const DoubleType as usize as *mut IntType));
         p.to_data_start::<f64>().write(value);
+        self.allocated_objects.push(p);
         Ok(p)
     }
 
     pub unsafe fn write_char(&mut self, value: char) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + size_of::<char>();
+        let size_required = object_size(size_of::<char>());
         let p = self.allocator.alloc(size_required, size_of::<usize>())?.cast::<ObjectHeader>();
-        p.write(ObjectHeader::new(TypeSig::CHAR, &type_tokens::CHAR as *const CharType));
+        p.write(ObjectHeader::new(TypeSig::CHAR, &type_tokens::CHAR as *const CharType as usize as *mut IntType));
         p.to_data_start::<char>().write(value);
+        self.allocated_objects.push(p);
         Ok(p)
     }
 
     pub unsafe fn write_bool(&mut self, value: bool) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + size_of::<bool>();
+        let size_required = object_size(size_of::<bool>());
         let p = self.allocator.alloc(size_required, size_of::<usize>())?.cast::<ObjectHeader>();
-        p.write(ObjectHeader::new(TypeSig::BOOL, &type_tokens::BOOL as *const BoolType));
+        p.write(ObjectHeader::new(TypeSig::BOOL, &type_tokens::BOOL as *const BoolType as usize as *mut IntType));
         p.to_data_start::<bool>().write(value);
+        self.allocated_objects.push(p);
         Ok(p)
     }
 
     // noinspection ALL
     pub unsafe fn write_record(&mut self, data: &LinkedHashMap<String, Arc<dyn Any>>, type_info: &RecordType) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + type_info.size();
+        let size_required = object_size(type_info.size());
         let p = self.allocator.alloc(size_required, size_of::<usize>())?.cast::<ObjectHeader>();
-        p.write(ObjectHeader::new(TypeSig::RECORD, self.heap_allocated_type_info(type_info)));
+        p.write(ObjectHeader::new(TypeSig::RECORD, self.heap_allocated_type_info(type_info) as *mut dyn TypeInfo));
         for (name, field) in type_info.0.iter() {
             let field_ptr = p.to_data_start::<u8>().add(type_info.alignment_table()[name]);
             // NOTE: the cast to u8 is necessary because the pointer arithmetic is done in bytes
@@ -142,23 +155,26 @@ impl ObjectAllocator {
                 _ => return Err(AllocatorError::ObjectAllocationFailed("Only primitive types are supported in Product Type".to_string()))
             }
         }
+        self.allocated_objects.push(p);
         Ok(p)
     }
 
     // noinspection ALL
     pub unsafe fn write_product(&mut self, data: &[Arc<dyn Any>], type_info: &ProductType) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + type_info.size();
+        let size_required = object_size(type_info.size());
         let p = self.allocator.alloc(size_required, size_of::<usize>())?.cast::<ObjectHeader>();
-        p.write(ObjectHeader::new(TypeSig::PRODUCT, self.heap_allocated_type_info(type_info)));
+        p.write(ObjectHeader::new(TypeSig::PRODUCT, self.heap_allocated_type_info(type_info) as *mut dyn TypeInfo));
         self.write_product_data(data, type_info, &type_info.alignment_table(), p.to_data_start())?;
+        self.allocated_objects.push(p);
         Ok(p)
     }
 
     pub unsafe fn write_sum(&mut self, data: &[Arc<dyn Any>], type_info: &SumType) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = size_of::<ObjectHeader>() + type_info.size();
+        let size_required = object_size(type_info.size());
         let p = self.allocator.alloc(size_required, size_of::<usize>())?.cast::<ObjectHeader>();
-        p.write(ObjectHeader::new(TypeSig::SUM, self.heap_allocated_type_info(type_info)));
+        p.write(ObjectHeader::new(TypeSig::SUM, self.heap_allocated_type_info(type_info) as *mut dyn TypeInfo));
         self.write_product_data(data, type_info.0.get(&type_info.1).unwrap(), &type_info.alignment_table(), p.to_data_start())?;
+        self.allocated_objects.push(p);
         Ok(p)
     }
 

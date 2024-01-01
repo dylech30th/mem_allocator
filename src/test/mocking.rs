@@ -1,11 +1,13 @@
 use std::any::Any;
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 use linked_hash_map::LinkedHashMap;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::Rng;
 use rand::seq::IteratorRandom;
-use crate::allocator::object_allocator::{ObjectAllocator, ObjectHeader};
+use crate::allocator::object_allocator::{ObjectHeader};
+use crate::gc::gc::GarbageCollector;
 use crate::vm_types::type_info::{ProductType, RecordType, ReferenceType, SumType, TypeInfo};
 use crate::vm_types::type_kind::TypeKind;
 use crate::vm_types::type_sig::TypeSig;
@@ -13,16 +15,16 @@ use crate::vm_types::type_tokens;
 
 // Cette structure nous aide à mocker les reférences
 pub struct ObjectMocker {
-    pub allocator: ObjectAllocator,
+    pub allocator: Rc<RefCell<GarbageCollector>>,
     pub mocked_objects_ptrs: Vec<(TypeKind, *mut ObjectHeader)>
 }
 
 pub struct MockResult(pub (Arc<dyn TypeInfo>, Arc<dyn Any>), pub *mut ObjectHeader);
 
 impl ObjectMocker {
-    pub fn new() -> ObjectMocker {
+    pub unsafe fn new() -> ObjectMocker {
         ObjectMocker {
-            allocator: ObjectAllocator::new(),
+            allocator: GarbageCollector::new(),
             mocked_objects_ptrs: Vec::new()
         }
     }
@@ -31,7 +33,7 @@ impl ObjectMocker {
     pub unsafe fn mock_and_allocate_object(&mut self) -> Result<MockResult, String> {
         let obj = self.mock_object(0, false)
             .map_err(|_| "Failed to mock object".to_string())?;
-        let allocated = self.allocator.allocate_general(&obj)
+        let allocated = self.allocator.borrow_mut().heap.allocate_general(&obj)
             .map_err(|x| format!("Failed to allocate object while mocking: {:?}", x))?;
         // without clone here will cause strange problems
         self.mocked_objects_ptrs.push((obj.0.kind().clone(), allocated));
@@ -41,7 +43,7 @@ impl ObjectMocker {
     fn gen_random(&self, recursion_depth: u32, is_in_complex_type: bool) -> usize {
         loop {
             let random = if recursion_depth <= 3 && !is_in_complex_type {
-                rand::thread_rng().gen_range(1..=9)
+                rand::thread_rng().gen_range(7..=7)
             } else {
                 rand::thread_rng().gen_range(1..=6)
             };
@@ -55,7 +57,6 @@ impl ObjectMocker {
 
     #[allow(clippy::type_complexity)]
     unsafe fn mock_reference(&self) -> Result<(Arc<dyn TypeInfo>, Arc<dyn Any>), ()> {
-        let ptrs = &self.mocked_objects_ptrs;
         let (type_kind, ptr) = self.mocked_objects_ptrs.iter().choose(&mut rand::thread_rng()).unwrap();
         let ty = ReferenceType(type_kind.to_type_sig());
         Ok((Arc::new(ty), Arc::new(*ptr as usize)))

@@ -5,32 +5,59 @@ use linked_hash_map::LinkedHashMap;
 use crate::utils::errors::AllocatorError;
 use crate::utils::func_ext::identity_once;
 
-const EXPAND_FACTOR: f64 = 2f64;
+const EXPAND_FACTOR: usize = 2;
 const INITIAL_SIZE: usize = 2048;
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
-pub struct MemRegionTracker {
+pub struct HeapBlock {
     pub start: *mut u8,
     pub unallocated_start: *mut u8,
     pub size: usize,
 }
 
-pub struct MemAllocator {
+impl HeapBlock {
+    pub fn contains(&self, ptr: *mut u8) -> bool {
+        let start = self.start as usize;
+        let end = start + self.size;
+        let ptr = ptr as usize;
+        ptr >= start && ptr < end
+    }
+
+    pub fn relative_offset<T>(&self, ptr: *const T) -> usize {
+        let start = self.start as usize;
+        let ptr = ptr as usize;
+        ptr - start
+    }
+
+    pub fn absolute_offset<T>(&self, offset: usize) -> *mut T {
+        unsafe { self.start.add(offset) as *mut T }
+    }
+
+    pub fn block_end(&self) -> *mut u8 {
+        unsafe { self.start.add(self.size) }
+    }
+
+    pub fn allocated_size(&self) -> usize {
+        unsafe { self.unallocated_start.sub_ptr(self.start) }
+    }
+}
+
+pub struct HeapAllocator {
     pub size: usize,
-    pub committed_regions: LinkedHashMap<Layout, MemRegionTracker>,
-    pub expand_callback: Box<dyn FnMut(MemRegionTracker)>,
+    pub committed_regions: LinkedHashMap<Layout, HeapBlock>,
+    pub expand_callback: Box<dyn FnMut(HeapBlock)>,
     pub available: bool
 }
 
-impl Default for MemAllocator {
+impl Default for HeapAllocator {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl MemAllocator {
+impl HeapAllocator {
     pub fn new() -> Self {
-        MemAllocator {
+        HeapAllocator {
             size: 0,
             committed_regions: LinkedHashMap::new(),
             expand_callback: Box::new(|_| ()),
@@ -38,8 +65,8 @@ impl MemAllocator {
         }
     }
 
-    pub fn new_with_callback(callback: Box<dyn FnMut(MemRegionTracker)>) -> Self {
-        MemAllocator {
+    pub fn new_with_callback(callback: Box<dyn FnMut(HeapBlock)>) -> Self {
+        HeapAllocator {
             size: 0,
             committed_regions: LinkedHashMap::new(),
             expand_callback: callback,
@@ -47,7 +74,11 @@ impl MemAllocator {
         }
     }
 
-    pub fn get_block(&self, ptr: *mut u8) -> Option<&MemRegionTracker> {
+    pub fn block_index(&self, block: &HeapBlock) -> Option<usize> {
+        self.committed_regions.iter().position(|(_, b)| b.start == block.start)
+    }
+
+    pub fn get_block(&self, ptr: *mut u8) -> Option<&HeapBlock> {
         self.committed_regions.iter().find(|(_, tracker)| {
             let start = tracker.start as usize;
             let end = start + tracker.size;
@@ -56,18 +87,23 @@ impl MemAllocator {
         }).map(|(_, tracker)| tracker)
     }
 
-    unsafe fn expand(&mut self) -> Result<(), AllocatorError> {
+    unsafe fn expand(&mut self, desired_size: usize, align: usize) -> Result<(), AllocatorError> {
         if !self.available {
             return Err(AllocatorError::AllocatorClosed);
         }
-        let new_layout_size = if self.size == 0 { INITIAL_SIZE } else { (self.size as f64 * EXPAND_FACTOR) as usize };
+        // calculate the least multiple of 8 that is greater than desired_size
+
+        let mut new_layout_size = if self.size == 0 { INITIAL_SIZE } else { self.size * EXPAND_FACTOR };
+        if new_layout_size < desired_size {
+            new_layout_size = (desired_size + ((!desired_size + 1) & (align - 1))) * EXPAND_FACTOR;
+        }
         let new_layout = match Layout::array::<u8>(new_layout_size) {
             Ok(l) => l,
             Err(_) => return Err(AllocatorError::FailedToCreateLayout)
         };
         self.size += new_layout.size();
         let ptr = alloc::alloc_zeroed(new_layout);
-        let region = MemRegionTracker {
+        let region = HeapBlock {
             start: ptr,
             unallocated_start: ptr,
             size: new_layout.size()
@@ -79,7 +115,7 @@ impl MemAllocator {
 
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn alloc_layout<T: Sized>(&mut self) -> Result<*mut T, AllocatorError> {
-        self.alloc(Layout::new::<T>().size(), align_of::<T>()).map(|ptr| ptr as *mut T)
+        self.alloc(Layout::new::<T>().size(), align_of::<usize>()).map(|ptr| ptr as *mut T)
     }
 
 
@@ -90,18 +126,17 @@ impl MemAllocator {
         }
 
         // find the first region that has enough space
-        let first = self.committed_regions.iter_mut().find(|entry| entry.1.unallocated_start.sub_ptr(entry.1.start) + size <= entry.1.size);
+        let first = self.committed_regions.iter_mut().find(|entry| entry.1.allocated_size() + size <= entry.1.size);
         match first {
             Some((_, tracker)) => {
-                let padding_discriminant = tracker.unallocated_start.sub_ptr(tracker.start) % align;
-                let padding = if padding_discriminant == 0 { 0 } else { align - padding_discriminant };
+                let padding = (!(tracker.unallocated_start as usize) + 1) & (align - 1);
                 tracker.unallocated_start = tracker.unallocated_start.add(padding);
                 let ptr = tracker.unallocated_start;
                 tracker.unallocated_start = tracker.unallocated_start.add(size);
                 Ok(ptr)
             },
             None => {
-                self.expand()?;
+                self.expand(size, align)?;
                 self.alloc(size, align).map(identity_once)
             }
         }
@@ -112,7 +147,7 @@ impl MemAllocator {
         if !self.available {
             return 0;
         }
-        self.committed_regions.iter().map(|(_, tracker)| tracker.unallocated_start.sub_ptr(tracker.start)).sum()
+        self.committed_regions.iter().map(|(_, tracker)| tracker.allocated_size()).sum()
     }
 
     #[allow(clippy::missing_safety_doc)]

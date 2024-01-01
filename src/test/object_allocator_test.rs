@@ -96,13 +96,13 @@ pub fn test_obj_allocation_stability() {
         }
 
         for (i, ptr) in vec.iter().enumerate() {
-            let res1 = mocker.allocator.read_obj(*ptr).unwrap();
+            let res1 = mocker.allocator.borrow_mut().heap.read_obj(*ptr).unwrap();
             let res2 = reses.get(i).unwrap();
             println!("{} == {}: {}", format_read_object(&res1), format_read_object(res2), format_read_object(&res1) == format_read_object(res2));
         }
 
         println!("Tous les équivalences tiennent: {}", vec.iter().zip(reses.iter()).all(|(x, y)| {
-            let res1 = mocker.allocator.read_obj(*x).unwrap();
+            let res1 = mocker.allocator.borrow_mut().heap.read_obj(*x).unwrap();
             let res2 = y;
             format_read_object(&res1) == format_read_object(res2)
         }));
