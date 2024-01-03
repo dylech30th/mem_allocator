@@ -278,8 +278,8 @@ impl GarbageCollector {
         let bit_block_of_start = self.bitmap[start_index.bitmap_nth][start_index.offset];
         let bit_block_of_end = self.bitmap[end_index.bitmap_nth][end_index.offset];
         // clear lower bits
-        let start_bits = count_bits_set(bit_block_of_start & (!0 << start_index.bit));
-        let end_bits = count_bits_set(bit_block_of_start & (!0 << (8 - end_index.bit - 1)));
+        let start_bits = count_bits_set(bit_block_of_start & (!0xFF << start_index.bit));
+        let end_bits = count_bits_set(bit_block_of_start & (0xFF << (8 - end_index.bit - 1)));
     }
 
     unsafe fn compaction_block_index_of(&self, start: *mut u8, heap_block: &HeapBlock) -> usize {

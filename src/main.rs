@@ -25,12 +25,7 @@ mod test;
 
 fn main() {
     unsafe {
-        let a = !0i32;
-        let c_as_u32: u32 = {
-            let bytes = a.to_be_bytes();
-            u32::from_be_bytes(bytes)
-        };
-        let x = (!c_as_u32) << 1;
+        let x = 0xFF >> 3;
         println!("{x:#b}");
         // test::object_allocator_test::test_obj_allocation_stability();
         // test::gc::test_reachability()
