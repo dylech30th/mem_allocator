@@ -92,3 +92,7 @@ pub fn count_bits_set(i: u8) -> Vec<usize> {
     }
     set_bits
 }
+
+pub fn bit_set(i: u8, bit: usize) -> bool {
+    i >> bit & 1 == 1
+}

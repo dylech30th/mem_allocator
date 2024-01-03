@@ -1,17 +1,18 @@
 use std::cell::RefCell;
-use std::mem::align_of;
+use std::mem::{align_of, size_of};
 use std::rc::Rc;
+use maplit::hashmap;
 use crate::allocator::heap_allocator::HeapBlock;
 use crate::allocator::object_allocator::{ObjectAllocator, ObjectHeader};
 use crate::gc::reachability::ObjectAllocatorExt;
 use crate::utils::func_ext::OptionExt;
-use crate::utils::io::{count_bits_set, object_size};
+use crate::utils::io::{bit_set, count_bits_set, object_size};
 use crate::utils::iter_ext::IterExt;
 use crate::vm_types::type_info::{ProductType, TypeInfo};
 
 pub struct GarbageCollector {
     pub heap: ObjectAllocator,
-    // chaque bit répresente un début d'objet possible
+    // chaque bit répresente un début d'objet possible. i.e., un "word"
     pub bitmap: Vec<Vec<u8>>
 }
 
@@ -30,6 +31,9 @@ impl BitmapIndex {
         }
     }
 }
+
+const BYTES_PER_BLOCK: usize = 256;
+const BITS_IN_BLOCK: usize = BYTES_PER_BLOCK;
 
 impl GarbageCollector {
     // le ramasse-miettes, il est alloué sur le tas.
@@ -233,5 +237,31 @@ impl GarbageCollector {
         let block = self.heap.allocator.committed_regions.iter().nth(bitmap_index).unwrap();
         let add_offset = (offset * 8 + bit) * align_of::<usize>();
         block.1.absolute_offset(add_offset)
+    }
+
+
+
+    // "The Compressor"
+    unsafe fn compute_locations(&self, heap_block: &HeapBlock) {
+        let mut location = heap_block.start;
+        let mut block = self.block_index_of(heap_block.start);
+        let mut offset = hashmap!{};
+        for (idx, bit_block) in self.bitmap[self.index_of_heap_block(heap_block)].iter().enumerate() {
+            for i in 0..size_of::<u8>() {
+                let bit_index= idx * size_of::<u8>() + i;
+                if bit_index % BITS_IN_BLOCK == 0 {
+                    offset.insert(block, location);
+                    block += 1
+                }
+                if bit_set(*bit_block, i) {
+                    let pointer = self.bitmap_index_to_address(BitmapIndex::new(self.index_of_heap_block(heap_block), idx, bit_index));
+                    location = location.byte_add((*pointer).size);
+                }
+            }
+        }
+    }
+
+    unsafe fn block_index_of(&self, start: *mut u8) -> usize {
+        start as usize / BYTES_PER_BLOCK
     }
 }

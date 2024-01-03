@@ -43,7 +43,7 @@ impl ObjectMocker {
     fn gen_random(&self, recursion_depth: u32, is_in_complex_type: bool) -> usize {
         loop {
             let random = if recursion_depth <= 3 && !is_in_complex_type {
-                rand::thread_rng().gen_range(7..=7)
+                rand::thread_rng().gen_range(1..=9)
             } else {
                 rand::thread_rng().gen_range(1..=6)
             };
