@@ -89,7 +89,7 @@ pub fn test_obj_allocation_stability() {
         // test::object_allocator_test::test_obj_alloc_single(&mut allocator);
         let mut vec = vec![];
         let mut reses = vec![];
-        for _ in 1..=100 {
+        for _ in 1..=1000 {
             let res = mocker.mock_and_allocate_object().unwrap();
             reses.push(res.0);
             vec.push(res.1);

@@ -19,6 +19,7 @@ pub struct ObjectAllocator {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct ObjectHeader {
     pub type_sig: usize,
     pub size: usize,

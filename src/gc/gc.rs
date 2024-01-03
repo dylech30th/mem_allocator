@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::mem::{align_of, size_of};
 use std::rc::Rc;
 use maplit::hashmap;
@@ -51,7 +52,6 @@ impl GarbageCollector {
             // puisque les objets sont `align_of::<usize>()`-alignés, alors on divise la taille de la mémoire par
             // `align_of::<usize>()`, de plus, puisque chaque bit répresente un début d'objet, alors on divise
             // de plus par `8`, les bits dans un byte.
-            // (*cloned.as_ref().as_ptr()).bitmap.push(vec![0; tracker.size / align_of::<usize>() / 8]);
             (*cloned.as_ref().as_ptr()).bitmap.push(vec![0; tracker.size / align_of::<usize>() / 8]);
         });
         gc
@@ -242,26 +242,47 @@ impl GarbageCollector {
 
 
     // "The Compressor"
-    unsafe fn compute_locations(&self, heap_block: &HeapBlock) {
+    // Je voudrais référer à l'algorithme 3.4 et la figure 3.3 dans le livre.
+    pub unsafe fn compute_locations(&self, heap_block: &HeapBlock) -> HashMap<usize, *mut u8> {
         let mut location = heap_block.start;
-        let mut block = self.block_index_of(heap_block.start);
+        let mut block = self.compaction_block_index_of(heap_block.start, heap_block);
         let mut offset = hashmap!{};
         for (idx, bit_block) in self.bitmap[self.index_of_heap_block(heap_block)].iter().enumerate() {
-            for i in 0..size_of::<u8>() {
-                let bit_index= idx * size_of::<u8>() + i;
+            for i in 0..8 { // 8: bits of byte
+                let bit_index= idx * 8 + i;
+                // il y a 256 bytes dans un bloc, et chaque bit répresente un mot qui a pour taille la taille d'un byte
+                // alors il y a en fait 256 bits per bloc.
+                // Pour examiner si le bit courant franchit le bloc, on vérifie si l'indice du bit est un multiple de 256.
+                // le code suivant répond à la question: "où devrait-on mettre le premier objet dans 'block'?"
                 if bit_index % BITS_IN_BLOCK == 0 {
+                    // le premier objet dans 'block' sera mis à 'location'
                     offset.insert(block, location);
                     block += 1
                 }
+
                 if bit_set(*bit_block, i) {
-                    let pointer = self.bitmap_index_to_address(BitmapIndex::new(self.index_of_heap_block(heap_block), idx, bit_index));
+                    let pointer = self.bitmap_index_to_address(BitmapIndex::new(self.index_of_heap_block(heap_block), idx, i));
                     location = location.byte_add((*pointer).size);
                 }
             }
         }
+        offset
     }
 
-    unsafe fn block_index_of(&self, start: *mut u8) -> usize {
-        start as usize / BYTES_PER_BLOCK
+    unsafe fn preceding_offset_in_compaction_block(&self, address: *mut u8, heap_block: &HeapBlock) {
+        let block_start = (address as usize & !(BYTES_PER_BLOCK - 1)) as *mut u8;
+        let block_end = block_start.byte_add(BYTES_PER_BLOCK);
+        let block_num = self.compaction_block_index_of(address, heap_block);
+        let start_index = self.address_to_bitmap_index(block_start as *mut ObjectHeader);
+        let end_index = self.address_to_bitmap_index(block_end as *mut ObjectHeader);
+        let bit_block_of_start = self.bitmap[start_index.bitmap_nth][start_index.offset];
+        let bit_block_of_end = self.bitmap[end_index.bitmap_nth][end_index.offset];
+        // clear lower bits
+        let start_bits = count_bits_set(bit_block_of_start & (!0 << start_index.bit));
+        let end_bits = count_bits_set(bit_block_of_start & (!0 << (8 - end_index.bit - 1)));
+    }
+
+    unsafe fn compaction_block_index_of(&self, start: *mut u8, heap_block: &HeapBlock) -> usize {
+        (start as usize - heap_block.start as usize) / BYTES_PER_BLOCK
     }
 }

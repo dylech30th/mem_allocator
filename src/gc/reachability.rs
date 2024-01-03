@@ -64,7 +64,7 @@ impl ObjectAllocatorExt for ObjectAllocator {
                 Ok(read_product_pointers(&*header.ptr_to_type_info.cast::<ProductType>())),
             TypeSig::RECORD => {
                 let type_info = &*header.ptr_to_type_info.cast::<RecordType>();
-                let res = (*type_info).0.iter()
+                let res = type_info.0.iter()
                     .filter(|(_, x)| x.kind() == TypeKind::Reference)
                     .map(|x| x.0.clone())
                     .collect::<Vec<String>>()

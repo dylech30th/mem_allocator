@@ -2,11 +2,12 @@
 #![feature(ptr_sub_ptr)]
 #![feature(downcast_unchecked)]
 #![feature(unsized_locals, unsized_fn_params)]
-#![feature(char_min)]
 #![feature(box_into_inner)]
 #![feature(allocator_api)]
 #![feature(iter_collect_into)]
 #![feature(let_chains)]
+
+use std::ops::Shr;
 
 pub(crate) mod allocator;
 pub(crate) mod utils;
@@ -24,7 +25,14 @@ mod test;
 
 fn main() {
     unsafe {
+        let a = !0i32;
+        let c_as_u32: u32 = {
+            let bytes = a.to_be_bytes();
+            u32::from_be_bytes(bytes)
+        };
+        let x = (!c_as_u32) << 1;
+        println!("{x:#b}");
         // test::object_allocator_test::test_obj_allocation_stability();
-        test::gc::test_reachability()
+        // test::gc::test_reachability()
     }
 }

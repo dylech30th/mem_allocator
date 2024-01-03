@@ -55,4 +55,10 @@ pub unsafe fn test_reachability() {
     println!("Tous les pointeurs sont bien alignés: {}", pointers.iter().all(|x| *x as usize % 8 == 0));
     println!("Objets accéssibilité: {}", reachables.len());
     println!("Tous les objets: {}", pointers.len());
+
+
+    for value in obj_mocker.allocator.borrow().heap.allocator.committed_regions.values() {
+        let res = obj_mocker.allocator.borrow().compute_locations(value);
+        println!("{:?}", res);
+    }
 }
