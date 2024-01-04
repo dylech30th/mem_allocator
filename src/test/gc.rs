@@ -59,6 +59,7 @@ pub unsafe fn test_reachability() {
 
     for value in obj_mocker.allocator.borrow().heap.allocator.committed_regions.values() {
         let res = obj_mocker.allocator.borrow().compute_locations(value);
+
         println!("{:?}", res);
     }
 }

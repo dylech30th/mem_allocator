@@ -6,7 +6,7 @@ use maplit::hashmap;
 use crate::allocator::heap_allocator::HeapBlock;
 use crate::allocator::object_allocator::{ObjectAllocator, ObjectHeader};
 use crate::gc::reachability::ObjectAllocatorExt;
-use crate::utils::func_ext::OptionExt;
+use crate::utils::func_ext::{FuncExt, OptionExt};
 use crate::utils::io::{bit_set, count_bits_set, object_size};
 use crate::utils::iter_ext::IterExt;
 use crate::vm_types::type_info::{ProductType, TypeInfo};
@@ -269,17 +269,32 @@ impl GarbageCollector {
         offset
     }
 
-    unsafe fn preceding_offset_in_compaction_block(&self, address: *mut u8, heap_block: &HeapBlock) {
+    pub unsafe fn preceding_offset_in_compaction_block(&self, offset_table: HashMap<usize, *mut u8>, address: *mut u8, heap_block: &HeapBlock) -> *mut u8 {
         let block_start = (address as usize & !(BYTES_PER_BLOCK - 1)) as *mut u8;
         let block_end = block_start.byte_add(BYTES_PER_BLOCK);
         let block_num = self.compaction_block_index_of(address, heap_block);
         let start_index = self.address_to_bitmap_index(block_start as *mut ObjectHeader);
         let end_index = self.address_to_bitmap_index(block_end as *mut ObjectHeader);
-        let bit_block_of_start = self.bitmap[start_index.bitmap_nth][start_index.offset];
-        let bit_block_of_end = self.bitmap[end_index.bitmap_nth][end_index.offset];
-        // clear lower bits
-        let start_bits = count_bits_set(bit_block_of_start & (!0xFF << start_index.bit));
-        let end_bits = count_bits_set(bit_block_of_start & (0xFF << (8 - end_index.bit - 1)));
+        let bits_in_start_block = count_bits_set(self.bitmap[start_index.bitmap_nth][start_index.offset])
+            .into_iter()
+            .filter(|idx| *idx >= start_index.bit)
+            .map(|idx| (start_index.offset, idx))
+            .collect::<Vec<_>>();
+        let bits_in_end_block = count_bits_set(self.bitmap[end_index.bitmap_nth][end_index.offset])
+            .into_iter()
+            .filter(|idx| *idx <= end_index.bit)
+            .map(|idx| (end_index.offset, idx))
+            .collect::<Vec<_>>();
+        let bits_in_between = (start_index.offset + 1..end_index.offset)
+            .map(|off| (off, self.bitmap[start_index.offset][off]))
+            .flat_map(|(off, data)| count_bits_set(data).into_iter().map(move |idx| (off, idx)))
+            .collect::<Vec<_>>();
+        let total = [bits_in_start_block, bits_in_between, bits_in_end_block].into_iter().flatten();
+        let total_size = total.map(|(offset, bit)| {
+            let pointer = self.bitmap_index_to_address(BitmapIndex::new(start_index.bitmap_nth, offset, bit));
+            (*pointer).size
+        }).sum::<usize>();
+        offset_table.get(&block_num).unwrap().byte_add(total_size)
     }
 
     unsafe fn compaction_block_index_of(&self, start: *mut u8, heap_block: &HeapBlock) -> usize {
