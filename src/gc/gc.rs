@@ -313,12 +313,10 @@ impl GarbageCollector {
                 .collect::<Vec<_>>()
         } else { vec![] };
         let total = [bits_in_start_block, bits_in_between, bits_in_end_block].into_iter().flatten();
-        let res = total.map(|(offset, bit)| {
+        total.map(|(offset, bit)| {
             let pointer = self.bitmap_index_to_address(BitmapIndex::new(start_index.bitmap_nth, offset, bit));
             (*pointer).size
-        }).sum::<usize>();
-        println!("{}", res);
-        res
+        }).sum::<usize>()
     }
 
     unsafe fn distance_between(lhs: BitmapIndex, rhs: BitmapIndex) {
