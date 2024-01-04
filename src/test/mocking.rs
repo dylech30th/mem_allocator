@@ -8,7 +8,7 @@ use rand::Rng;
 use rand::seq::IteratorRandom;
 use crate::allocator::object_allocator::{ObjectHeader};
 use crate::gc::gc::GarbageCollector;
-use crate::vm_types::type_info::{ProductType, RecordType, ReferenceType, SumType, TypeInfo};
+use crate::vm_types::type_info::*;
 use crate::vm_types::type_kind::TypeKind;
 use crate::vm_types::type_sig::TypeSig;
 use crate::vm_types::type_tokens;

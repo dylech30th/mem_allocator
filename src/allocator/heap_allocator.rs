@@ -130,9 +130,9 @@ impl HeapAllocator {
         match first {
             Some((_, tracker)) => {
                 let padding = (!(tracker.unallocated_start as usize) + 1) & (align - 1);
-                tracker.unallocated_start = tracker.unallocated_start.add(padding);
+                tracker.unallocated_start = tracker.unallocated_start.byte_add(padding);
                 let ptr = tracker.unallocated_start;
-                tracker.unallocated_start = tracker.unallocated_start.add(size);
+                tracker.unallocated_start = tracker.unallocated_start.byte_add(size);
                 Ok(ptr)
             },
             None => {

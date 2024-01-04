@@ -17,6 +17,7 @@ pub struct GarbageCollector {
     pub bitmap: Vec<Vec<u8>>
 }
 
+#[derive(Eq, PartialEq, Copy, Clone)]
 struct BitmapIndex {
     bitmap_nth: usize,
     offset: usize,
@@ -200,7 +201,7 @@ impl GarbageCollector {
         self.bitmap[bitmap_nth][offset] & (1 << bit) != 0
     }
 
-    unsafe fn set_marked(&mut self, address: *mut ObjectHeader, value: bool) {
+    pub unsafe fn set_marked(&mut self, address: *mut ObjectHeader, value: bool) {
         let BitmapIndex { bitmap_nth, offset, bit } = self.address_to_bitmap_index(address);
         if value {
             self.bitmap[bitmap_nth][offset] |= 1 << bit;
@@ -249,11 +250,12 @@ impl GarbageCollector {
         let mut offset = hashmap!{};
         for (idx, bit_block) in self.bitmap[self.index_of_heap_block(heap_block)].iter().enumerate() {
             for i in 0..8 { // 8: bits of byte
-                let bit_index= idx * 8 + i;
+                let bit_index= (idx * size_of::<usize>() + i) * 8;
                 // il y a 256 bytes dans un bloc, et chaque bit répresente un mot qui a pour taille la taille d'un byte
                 // alors il y a en fait 256 bits per bloc.
                 // Pour examiner si le bit courant franchit le bloc, on vérifie si l'indice du bit est un multiple de 256.
                 // le code suivant répond à la question: "où devrait-on mettre le premier objet dans 'block'?"
+                println!("{bit_index} % {BITS_IN_BLOCK} == 0: {}", (bit_index & BITS_IN_BLOCK == 0));
                 if bit_index % BITS_IN_BLOCK == 0 {
                     // le premier objet dans 'block' sera mis à 'location'
                     offset.insert(block, location);
@@ -269,32 +271,58 @@ impl GarbageCollector {
         offset
     }
 
-    pub unsafe fn preceding_offset_in_compaction_block(&self, offset_table: HashMap<usize, *mut u8>, address: *mut u8, heap_block: &HeapBlock) -> *mut u8 {
-        let block_start = (address as usize & !(BYTES_PER_BLOCK - 1)) as *mut u8;
-        let block_end = block_start.byte_add(BYTES_PER_BLOCK);
-        let block_num = self.compaction_block_index_of(address, heap_block);
+    pub unsafe fn new_address_after_compaction(&self, old_address: *mut u8, offset_table: &HashMap<usize, *mut u8>, heap_block: &HeapBlock) -> *mut u8 {
+        let block = self.compaction_block_index_of(old_address, heap_block);
+        offset_table.get(&block).unwrap().byte_add(self.preceding_offset_in_compaction_block(old_address, heap_block))
+    }
+
+    pub unsafe fn preceding_offset_in_compaction_block(&self, address: *mut u8, heap_block: &HeapBlock) -> usize {
+        let start_block_bits = |start_idx: BitmapIndex, end_idx: BitmapIndex| -> Vec<(usize, usize)> {
+            if start_idx == end_idx {
+                vec![]
+            } else if start_idx.offset == end_idx.offset && start_idx.bit != end_idx.bit {
+                count_bits_set(self.bitmap[start_idx.bitmap_nth][start_idx.offset])
+                    .into_iter()
+                    .filter(|idx| *idx >= start_idx.bit && *idx < end_idx.bit) // if the end_index is in the same block with the start index
+                    .map(|idx| (start_idx.offset, idx))
+                    .collect::<Vec<_>>()
+            } else {
+                count_bits_set(self.bitmap[start_idx.bitmap_nth][start_idx.offset])
+                    .into_iter()
+                    .filter(|idx| *idx >= start_idx.bit) // if the end_index is in the same block with the start index
+                    .map(|idx| (start_idx.offset, idx))
+                    .collect::<Vec<_>>()
+            }
+        };
+
+        let block_start = heap_block.start.byte_add(address.byte_sub(heap_block.start as usize) as usize / BYTES_PER_BLOCK * BYTES_PER_BLOCK);
         let start_index = self.address_to_bitmap_index(block_start as *mut ObjectHeader);
-        let end_index = self.address_to_bitmap_index(block_end as *mut ObjectHeader);
-        let bits_in_start_block = count_bits_set(self.bitmap[start_index.bitmap_nth][start_index.offset])
-            .into_iter()
-            .filter(|idx| *idx >= start_index.bit)
-            .map(|idx| (start_index.offset, idx))
-            .collect::<Vec<_>>();
-        let bits_in_end_block = count_bits_set(self.bitmap[end_index.bitmap_nth][end_index.offset])
-            .into_iter()
-            .filter(|idx| *idx <= end_index.bit)
-            .map(|idx| (end_index.offset, idx))
-            .collect::<Vec<_>>();
-        let bits_in_between = (start_index.offset + 1..end_index.offset)
-            .map(|off| (off, self.bitmap[start_index.offset][off]))
-            .flat_map(|(off, data)| count_bits_set(data).into_iter().map(move |idx| (off, idx)))
-            .collect::<Vec<_>>();
+        let end_index = self.address_to_bitmap_index(address as *mut ObjectHeader);
+        let bits_in_start_block = start_block_bits(start_index, end_index);
+        let bits_in_end_block = if start_index != end_index {
+            count_bits_set(self.bitmap[end_index.bitmap_nth][end_index.offset])
+                .into_iter()
+                .filter(|idx| *idx < end_index.bit)
+                .map(|idx| (end_index.offset, idx))
+                .collect::<Vec<_>>()
+        } else { vec![] };
+        let bits_in_between = if start_index.offset + 1 > end_index.offset {
+            (start_index.offset + 1..end_index.offset)
+                .map(|off| (off, self.bitmap[start_index.offset][off]))
+                .flat_map(|(off, data)| count_bits_set(data).into_iter().map(move |idx| (off, idx)))
+                .collect::<Vec<_>>()
+        } else { vec![] };
         let total = [bits_in_start_block, bits_in_between, bits_in_end_block].into_iter().flatten();
-        let total_size = total.map(|(offset, bit)| {
+        let res = total.map(|(offset, bit)| {
             let pointer = self.bitmap_index_to_address(BitmapIndex::new(start_index.bitmap_nth, offset, bit));
             (*pointer).size
         }).sum::<usize>();
-        offset_table.get(&block_num).unwrap().byte_add(total_size)
+        println!("{}", res);
+        res
+    }
+
+    unsafe fn distance_between(lhs: BitmapIndex, rhs: BitmapIndex) {
+
     }
 
     unsafe fn compaction_block_index_of(&self, start: *mut u8, heap_block: &HeapBlock) -> usize {
