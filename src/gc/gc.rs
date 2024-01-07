@@ -319,10 +319,6 @@ impl GarbageCollector {
         }).sum::<usize>()
     }
 
-    unsafe fn distance_between(lhs: BitmapIndex, rhs: BitmapIndex) {
-
-    }
-
     unsafe fn compaction_block_index_of(&self, start: *mut u8, heap_block: &HeapBlock) -> usize {
         (start as usize - heap_block.start as usize) / BYTES_PER_BLOCK
     }
