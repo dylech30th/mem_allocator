@@ -81,6 +81,18 @@ pub fn object_size(data_size: usize) -> usize {
     size_of::<ObjectHeader>() + data_size
 }
 
+pub fn count_bits_set_range(i: u8, lo_include: usize, hi: usize) -> Vec<usize> {
+    let mut set_bits = vec![];
+    let mut bit = lo_include;
+    while bit < hi {
+        if i >> bit & 1 == 1 {
+            set_bits.push(bit);
+        }
+        bit += 1;
+    }
+    set_bits
+}
+
 pub fn count_bits_set(i: u8) -> Vec<usize> {
     let mut set_bits = vec![];
     let mut bit = 0;

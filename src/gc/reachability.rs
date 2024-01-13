@@ -8,9 +8,9 @@ use crate::vm_types::type_sig::TypeSig;
 use crate::utils::func_ext::FuncExt;
 
 pub trait ObjectAllocatorExt {
-    unsafe fn pointers(&self, obj_start: *mut ObjectHeader) -> Result<HashSet<*mut ObjectHeader>, GCError>;
+    unsafe fn pointers(&self, obj_start: *mut ObjectHeader) -> Result<HashSet<(*mut ObjectHeader, usize)>, GCError>;
 
-    unsafe fn pointers_all(&self, obj_starts: &[*mut ObjectHeader]) -> Result<HashSet<*mut ObjectHeader>, GCError>;
+    unsafe fn pointers_all(&self, obj_starts: &[*mut ObjectHeader]) -> Result<HashSet<(*mut ObjectHeader, usize)>, GCError>;
 
     unsafe fn reachable(&self, root_objects: &[*mut ObjectHeader]) -> Result<HashSet<*mut ObjectHeader>, GCError>;
 }
@@ -23,9 +23,11 @@ unsafe fn reachable(allocator: &ObjectAllocator, root_object: *mut ObjectHeader)
     let mut result = HashSet::new();
     result.insert(root_object);
     while let Some(ptr) = reachable.pop() {
-        let pointers = allocator.pointers(ptr)?;
+        let pointers = allocator.pointers(ptr)?.iter().map(|tuple| (*tuple).0)
+            .collect::<Vec<_>>();
         pointers.into_iter().for_each(|x| {
-            result.insert(x).ignore();
+            let copied = x.clone();
+            result.insert(copied).ignore();
             if !visited.contains(&x) {
                 reachable.push(x);
             } else {
@@ -38,8 +40,10 @@ unsafe fn reachable(allocator: &ObjectAllocator, root_object: *mut ObjectHeader)
 
 impl ObjectAllocatorExt for ObjectAllocator {
     // Récupérer tous les pointeurs dont les objets alloués contient.
-    unsafe fn pointers(&self, obj_start: *mut ObjectHeader) -> Result<HashSet<*mut ObjectHeader>, GCError> {
-        let read_product_pointers = |type_info: &ProductType| -> HashSet<*mut ObjectHeader> {
+    // noinspection all
+    // Return value: the pointers and their offsets relative to the data start.
+    unsafe fn pointers(&self, obj_start: *mut ObjectHeader) -> Result<HashSet<(*mut ObjectHeader, usize)>, GCError> {
+        let read_product_pointers = |type_info: &ProductType| -> HashSet<(*mut ObjectHeader, usize)> {
             type_info.0.iter().enumerate()
                 .filter(|(_, x)| x.kind() == TypeKind::Reference)
                 .map(|x| x.0)
@@ -49,7 +53,7 @@ impl ObjectAllocatorExt for ObjectAllocator {
                 // NOTE: first cast obj_start to u8 and add to alignment then cast to *usize, now we have
                 // a pointer that points to the address of the referee, and after that we dereference
                 // it to get the referee's address.
-                *obj_start.to_data_start::<u8>().add(alignment_at).cast::<usize>() as *mut ObjectHeader
+                (*obj_start.to_data_start::<u8>().add(alignment_at).cast::<usize>() as *mut ObjectHeader, alignment_at)
             }).collect()
         };
         let header = &*obj_start;
@@ -59,7 +63,7 @@ impl ObjectAllocatorExt for ObjectAllocator {
             // a pointer that points to the address of the referee, and after that we dereference
             // it to get the referee's address.
             TypeSig::REFERENCE =>
-                Ok(hashset!{*obj_start.to_data_start::<usize>() as *mut ObjectHeader}),
+                Ok(hashset!{(*obj_start.to_data_start::<usize>() as *mut ObjectHeader, 0)}),
             TypeSig::PRODUCT =>
                 Ok(read_product_pointers(&*header.ptr_to_type_info.cast::<ProductType>())),
             TypeSig::RECORD => {
@@ -73,7 +77,7 @@ impl ObjectAllocatorExt for ObjectAllocator {
                     // NOTE: first cast obj_start to u8 and add to alignment then cast to usize, now we have
                     // a pointer that points to the address of the referee, and after that we dereference
                     // it to get the referee's address.
-                    *obj_start.to_data_start::<u8>().add(alignment_at).cast::<usize>() as *mut ObjectHeader
+                    (*obj_start.to_data_start::<u8>().add(alignment_at).cast::<usize>() as *mut ObjectHeader, alignment_at)
                 }).collect();
                 Ok(res)
             },
@@ -86,10 +90,10 @@ impl ObjectAllocatorExt for ObjectAllocator {
         }
     }
 
-    unsafe fn pointers_all(&self, obj_starts: &[*mut ObjectHeader]) -> Result<HashSet<*mut ObjectHeader>, GCError> {
+    unsafe fn pointers_all(&self, obj_starts: &[*mut ObjectHeader]) -> Result<HashSet<(*mut ObjectHeader, usize)>, GCError> {
         obj_starts.iter().fold(self.pointers(obj_starts[0]), |acc, e|
             acc.and_then(|mut acc_vec| self.pointers(*e).map(|new_vec|
-                acc_vec.apply::<HashSet<*mut usize>, _>(|av| av.extend(new_vec)).clone())))
+                acc_vec.apply(|av| av.extend(new_vec)).clone())))
             .map(HashSet::from_iter)
     }
 
@@ -100,7 +104,6 @@ impl ObjectAllocatorExt for ObjectAllocator {
         root_objects.iter().fold(reachable(self, root_objects[0]), |acc, e|
             acc.and_then(|mut acc_set|
                 reachable(self, *e).map(|new|
-                    acc_set.apply::<HashSet<*mut usize>, _>(|a|
-                        a.extend(new)).clone())))
+                    acc_set.apply(|a| a.extend(new)).clone())))
     }
 }

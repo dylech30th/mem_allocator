@@ -144,7 +144,7 @@ impl ProductType {
 
 impl TypeInfo for ProductType {
     fn size(&self) -> usize {
-        (*self.alignment_table().last().unwrap_or(&0)) + self.0.last().map(|x| x.size()).unwrap_or(0) // the last field's start + the last field's size
+        (*self.alignment_table().last().unwrap_or(&0)) + self.0.last().map(|x| x.alignment()).unwrap_or(0) // the last field's start + the last field's size
     }
 
     fn name(&self) -> String {
