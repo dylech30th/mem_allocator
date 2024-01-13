@@ -40,6 +40,10 @@ pub unsafe fn test_reachability() {
         println!("{}", format_read_object(&obj_mocker.allocator.borrow_mut().heap.read_obj(*x).unwrap()));
     });
 
+    let allocated_ptrs_str = allocated_ptrs.iter().map(|x| {
+        format_read_object(&obj_mocker.allocator.borrow_mut().heap.read_obj(*x).unwrap())
+    }).collect::<Vec<_>>();
+
     let pointers = obj_mocker.allocator.borrow().heap.pointers_all(&allocated_ptrs).unwrap();
     let mut root_objects = (0..50).map(|_| rand::thread_rng().gen_range(0..1000)).map(|i| allocated_ptrs[i]).collect::<HashSet<*mut ObjectHeader>>().into_iter().collect::<Vec<*mut ObjectHeader>>();
     let reachables = obj_mocker.allocator.borrow().heap.reachable(&root_objects).unwrap();
@@ -57,18 +61,11 @@ pub unsafe fn test_reachability() {
     println!("Tous les pointeurs sont bien alignés: {}", pointers.iter().all(|(x, _)| *x as usize % 8 == 0));
     println!("Objets accéssibilité: {}", reachables.len());
     println!("Tous les objets: {}", pointers.len());
-    obj_mocker.allocator.borrow_mut().collect(&mut root_objects.iter().map(|x| Box::new(*x)).collect::<Vec<_>>());
+    let new_roots = obj_mocker.allocator.borrow_mut().collect(&mut root_objects);
 
-    //obj_mocker.allocator.borrow_mut().mark_living(&mut root_objects);
-    //let set_bits = obj_mocker.allocator.borrow().all_marked_bits();
-    //println!("bits met: {:x?}", set_bits);
-    //println!("Tous les bits met: {}", set_bits.len());
-    // println!("Tous les bitmaps sont apparaîtent à pointeurs: {}", reachables.iter()
-    //    .filter(|x| !pointers.contains(&(**x as *mut ObjectHeader))).map(|x| *x as *mut ObjectHeader).collect::<Vec<*mut ObjectHeader>>().len());
-    //println!("Tous les bitmaps sont apparaîtent à reachables: {:?}",reachables.iter().map(|x| **x).collect::<HashSet<_>>()
-        //.symmetric_difference(&set_bits.into_iter().collect::<_>()).collect::<HashSet<_>>());
-    //println!("Tous les objets sont bien alignés: {}", obj_mocker.allocator.borrow().heap.allocated_objects.iter().all(|x| *x as usize % 8 == 0));
-    //println!("Tous les pointeurs sont bien alignés: {}", pointers.iter().all(|x| **x as usize % 8 == 0));
-    //println!("Objets accéssibilité: {}", reachables.len());
-    //println!("Tous les objets: {}", pointers.len());
+    obj_mocker.allocator.borrow_mut().mark_living(&mut new_roots.values().copied().collect::<Vec<_>>());
+    let set_bits = obj_mocker.allocator.borrow().all_marked_bits();
+
+    println!("bits met: {:x?}", set_bits);
+    println!("Tous les bits met: {}", set_bits.len());
 }

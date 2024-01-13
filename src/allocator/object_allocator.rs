@@ -97,7 +97,7 @@ impl ObjectAllocator {
     }
 
     pub unsafe fn write_char(&mut self, value: char) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = object_size(size_of::<char>());
+        let size_required = object_size(if USE_COMPACT_LAYOUT { 1 } else { 8 });
         let p = self.allocator.alloc(size_required, size_of::<usize>())?.cast::<ObjectHeader>();
         p.write(ObjectHeader::new(TypeSig::CHAR, size_required, &type_tokens::CHAR as *const CharType as usize as *mut IntType));
         p.to_data_start::<char>().write(value);
@@ -106,7 +106,7 @@ impl ObjectAllocator {
     }
 
     pub unsafe fn write_bool(&mut self, value: bool) -> Result<*mut ObjectHeader, AllocatorError> {
-        let size_required = object_size(size_of::<bool>());
+        let size_required = object_size(if USE_COMPACT_LAYOUT { 1 } else { 8 });
         let p = self.allocator.alloc(size_required, size_of::<usize>())?.cast::<ObjectHeader>();
         p.write(ObjectHeader::new(TypeSig::BOOL, size_required, &type_tokens::BOOL as *const BoolType as usize as *mut IntType));
         p.to_data_start::<bool>().write(value);

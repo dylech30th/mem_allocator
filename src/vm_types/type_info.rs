@@ -267,7 +267,7 @@ impl TypeInfo for CharType {
         if object_allocator::USE_COMPACT_LAYOUT {
             1
         } else {
-            size_of::<char>()
+            8
         }
     }
 
@@ -296,7 +296,11 @@ impl TypeInfo for CharType {
 pub struct BoolType;
 impl TypeInfo for BoolType {
     fn size(&self) -> usize {
-        1
+        if object_allocator::USE_COMPACT_LAYOUT {
+            1
+        } else {
+            8
+        }
     }
 
     fn name(&self) -> String {

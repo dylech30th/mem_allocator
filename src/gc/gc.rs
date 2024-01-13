@@ -9,31 +9,52 @@ use crate::allocator::heap_allocator::HeapBlock;
 use crate::allocator::object_allocator::{ObjectAllocator, ObjectHeader, ObjectHeaderHelper};
 use crate::gc::reachability::ObjectAllocatorExt;
 use crate::utils::func_ext::OptionExt;
-use crate::utils::io::{bit_set, count_bits_set, count_bits_set_range, object_size};
+use crate::utils::io::{bit_set, count_bits_set, count_bits_set_range};
 use crate::utils::iter_ext::IterExt;
 use crate::vm_types::type_info::{ProductType, TypeInfo};
 
 pub struct GarbageCollector {
     pub heap: ObjectAllocator,
     // chaque bit répresente un début d'objet possible. i.e., un "word"
-    pub bitmap: Vec<Vec<u8>>,
+    bitmap: Vec<Vec<u8>>,
     size_of_living: HashMap<BitmapIndex, usize>
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-struct  BitmapIndex {
-    bitmap_nth: usize,
-    offset: usize,
-    bit: usize
+struct BitmapIndex {
+    data: u32
 }
 
+// The theoretically maximum heap size:
+// 1. We can have up to 32 bitmaps, first bitmap would contain 2048 bytes, so we can have totally
 impl BitmapIndex {
     fn new(bitmap_nth: usize, offset: usize, bit: usize) -> BitmapIndex {
-        BitmapIndex {
-            bitmap_nth,
-            offset,
-            bit
+        if bitmap_nth > u8::MAX as usize {
+            panic!("Bitmap index exceeds the addressing capability: {}", bitmap_nth)
         }
+        if offset > u16::MAX as usize {
+            panic!("Offset exceeds the addressing capability: {}", offset)
+        }
+        if bit > 8 {
+            panic!("Bit exceeds the size of a byte: {}", bit)
+        }
+        BitmapIndex { data: ((bitmap_nth as u32) << 24) | ((offset as u32) << 8) | (bit as u32) }
+    }
+
+    fn bitmap_nth(&self) -> usize {
+        (self.data >> 24 & 0xFF) as usize
+    }
+
+    fn offset(&self) -> usize {
+        (self.data >> 8 & 0xFFFF) as usize
+    }
+
+    fn bit(&self) -> usize {
+        (self.data & 0xFF) as usize
+    }
+
+    fn unpack(&self) -> (usize, usize, usize) {
+        (self.bitmap_nth(), self.offset(), self.bit())
     }
 }
 
@@ -170,7 +191,7 @@ impl GarbageCollector {
     }
 
     unsafe fn next_in_bitmap(&self, this_object: *mut ObjectHeader) -> Option<*mut ObjectHeader> {
-        let BitmapIndex{ bitmap_nth, offset, bit } = self.address_to_bitmap_index(this_object);
+        let (bitmap_nth, offset, bit) = self.address_to_bitmap_index(this_object).unpack();
         // on examine d'abord s'il y a des bits mis dans le même byte
         // on a su qu'il y a au moins un bit mis, ce qui est le bit qui répresente `this_object`
         let this_chunk = count_bits_set(self.bitmap[bitmap_nth][offset]).into_iter().find(|x| *x > bit);
@@ -201,13 +222,13 @@ impl GarbageCollector {
     }
 
     unsafe fn is_marked(&self, address: *mut ObjectHeader) -> bool {
-        let BitmapIndex { bitmap_nth, offset, bit } = self.address_to_bitmap_index(address);
+        let (bitmap_nth, offset, bit) = self.address_to_bitmap_index(address).unpack();
         self.bitmap[bitmap_nth][offset] & (1 << bit) != 0
     }
 
     pub unsafe fn set_marked(&mut self, address: *mut ObjectHeader, value: bool) {
         let bi = self.address_to_bitmap_index(address);
-        let BitmapIndex { bitmap_nth, offset, bit } = bi;
+        let (bitmap_nth, offset, bit) = bi.unpack();
         if value {
             self.size_of_living.insert(bi, (*address).size);
             self.bitmap[bitmap_nth][offset] |= 1 << bit;
@@ -234,7 +255,7 @@ impl GarbageCollector {
     }
 
     unsafe fn bitmap_index_to_address(&self, index: BitmapIndex) -> *mut ObjectHeader {
-        let BitmapIndex { bitmap_nth, offset, bit } = index;
+        let (bitmap_nth, offset, bit) = index.unpack();
         // referential equality hack here
         let bitmap_index = self.bitmap.iter().enumerate().find(|(_, vec)| vec.as_ptr() == self.bitmap[bitmap_nth].as_ptr())
             .unwrap().0;
@@ -267,6 +288,7 @@ impl GarbageCollector {
                 }
             }
         }
+
         offset
     }
 
@@ -284,25 +306,25 @@ impl GarbageCollector {
         if start_bit_chunk == end_bit_chunk {
             return 0;
         }
-        if start_bit_chunk.offset == end_bit_chunk.offset {
-            let in_between = count_bits_set_range(self.bitmap[start_bit_chunk.bitmap_nth][start_bit_chunk.offset], start_bit_chunk.bit, end_bit_chunk.bit);
+        if start_bit_chunk.offset() == end_bit_chunk.offset() {
+            let in_between = count_bits_set_range(self.bitmap[start_bit_chunk.bitmap_nth()][start_bit_chunk.offset()], start_bit_chunk.bit(), end_bit_chunk.bit());
             let addresses = in_between.iter()
-                .map(|bit| self.size_of_living.get(&BitmapIndex::new(start_bit_chunk.bitmap_nth, start_bit_chunk.offset, *bit)).unwrap_or(&0));
+                .map(|bit| self.size_of_living.get(&BitmapIndex::new(start_bit_chunk.bitmap_nth(), start_bit_chunk.offset(), *bit)).unwrap_or(&0));
             return addresses.sum::<usize>();
         }
-        let start_higher_size = count_bits_set_range(self.bitmap[start_bit_chunk.bitmap_nth][start_bit_chunk.offset], start_bit_chunk.bit, 8)
+        let start_higher_size = count_bits_set_range(self.bitmap[start_bit_chunk.bitmap_nth()][start_bit_chunk.offset()], start_bit_chunk.bit(), 8)
             .iter()
-            .map(|bit | self.size_of_living.get(&BitmapIndex::new(start_bit_chunk.bitmap_nth, start_bit_chunk.offset, *bit)).unwrap_or(&0))
+            .map(|bit | self.size_of_living.get(&BitmapIndex::new(start_bit_chunk.bitmap_nth(), start_bit_chunk.offset(), *bit)).unwrap_or(&0))
             .sum::<usize>();
-        let end_lower_size = count_bits_set_range(self.bitmap[end_bit_chunk.bitmap_nth][end_bit_chunk.offset], 0, end_bit_chunk.bit)
+        let end_lower_size = count_bits_set_range(self.bitmap[end_bit_chunk.bitmap_nth()][end_bit_chunk.offset()], 0, end_bit_chunk.bit())
             .iter()
-            .map(|bit | self.size_of_living.get(&BitmapIndex::new(end_bit_chunk.bitmap_nth, end_bit_chunk.offset, *bit)).unwrap_or(&0))
+            .map(|bit | self.size_of_living.get(&BitmapIndex::new(end_bit_chunk.bitmap_nth(), end_bit_chunk.offset(), *bit)).unwrap_or(&0))
             .sum::<usize>();
-        let in_between_chunks = (start_bit_chunk.offset + 1..end_bit_chunk.offset)
-            .map(|offset| (offset, self.bitmap[start_bit_chunk.bitmap_nth][offset]));
+        let in_between_chunks = (start_bit_chunk.offset() + 1..end_bit_chunk.offset())
+            .map(|offset| (offset, self.bitmap[start_bit_chunk.bitmap_nth()][offset]));
         let in_between_size: usize = in_between_chunks
             .flat_map(|(offset, chunk)| count_bits_set(chunk).iter()
-                .map(|bit| self.size_of_living.get(&BitmapIndex::new(start_bit_chunk.bitmap_nth, offset, *bit)).unwrap_or(&0))
+                .map(|bit| self.size_of_living.get(&BitmapIndex::new(start_bit_chunk.bitmap_nth(), offset, *bit)).unwrap_or(&0))
                 .collect::<Vec<_>>()).sum();
         start_higher_size + end_lower_size + in_between_size
     }
@@ -311,16 +333,16 @@ impl GarbageCollector {
         (start as usize - heap_block.start as usize) / BYTES_PER_BLOCK
     }
 
-    unsafe fn update_reference_relocate(&self, roots: &mut [Box<*mut ObjectHeader>]) {
-        println!("------------ Compaction in Progress ------------");
+    unsafe fn update_reference_relocate(&self, roots: &mut [*mut ObjectHeader]) -> HashMap<*mut ObjectHeader, *mut ObjectHeader> {
         let mut last_moved = hashset![];
         let offset_table_cache = self.heap.allocator.committed_regions.iter().map(|x| (x.1, self.compute_locations(x.1)))
             .collect::<HashMap<_, _>>();
+        let mut new_root = hashmap![];
         for root in roots {
             if !(*root).is_null() {
-                let heap_block = self.block_of(**root);
+                let heap_block = self.block_of(*root);
                 let offset_table = offset_table_cache.get(heap_block).unwrap();
-                **root = self.new_address_after_compaction(**root as *mut u8, offset_table, heap_block) as *mut ObjectHeader;
+                new_root.insert(*root, self.new_address_after_compaction(*root as *mut u8, offset_table, heap_block) as *mut ObjectHeader);
             }
         }
 
@@ -344,11 +366,11 @@ impl GarbageCollector {
                 }
 
                 self.copy_unsafe(old_addr, new_addr, (*s).size);
-                println!("Moved: {:x?} -> {:x?} of size {}", old_addr, new_addr, (*(new_addr as *mut ObjectHeader)).size);
                 last_moved.insert((old_addr, new_addr));
                 scan = self.next_in_bitmap(s);
             }
         }
+        new_root
     }
 
     unsafe fn copy_unsafe(&self, src: *mut u8, dst: *mut u8, count: usize) {
@@ -358,15 +380,13 @@ impl GarbageCollector {
             temp_arr.push(ptr::read(src.byte_add(i)))
         }
 
-        for i in 0..count {
-            ptr::write(dst.byte_add(i), temp_arr[i])
+        for (idx, i) in temp_arr.iter().enumerate() {
+            ptr::write(dst.byte_add(idx), *i)
         }
     }
 
-    pub fn collect(&mut self, roots: &mut [Box<*mut ObjectHeader>]) {
-        unsafe {
-            self.mark_living(&mut roots.iter().map(|x| **x).collect::<Vec<_>>());
-            self.update_reference_relocate(roots);
-        }
+    pub unsafe fn collect(&mut self, roots: &mut [*mut ObjectHeader]) -> HashMap<*mut ObjectHeader, *mut ObjectHeader> {
+        self.mark_living(&mut roots.to_vec());
+        self.update_reference_relocate(roots)
     }
 }
