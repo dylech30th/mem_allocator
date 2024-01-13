@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::mem::{align_of, size_of};
 use std::ptr;
 use std::rc::Rc;
+use linked_hash_map::LinkedHashMap;
 use maplit::{hashmap, hashset};
 use crate::allocator::heap_allocator::HeapBlock;
 use crate::allocator::object_allocator::{ObjectAllocator, ObjectHeader, ObjectHeaderHelper};
@@ -333,8 +334,9 @@ impl GarbageCollector {
         (start as usize - heap_block.start as usize) / BYTES_PER_BLOCK
     }
 
-    unsafe fn update_reference_relocate(&self, roots: &mut [*mut ObjectHeader]) -> HashMap<*mut ObjectHeader, *mut ObjectHeader> {
+    unsafe fn compact(&mut self, roots: &mut [*mut ObjectHeader]) -> HashMap<*mut ObjectHeader, *mut ObjectHeader> {
         let mut last_moved = hashset![];
+        let mut uninitialized_starts = vec![(0usize, 0usize); self.heap.allocator.committed_regions.len()];
         let offset_table_cache = self.heap.allocator.committed_regions.iter().map(|x| (x.1, self.compute_locations(x.1)))
             .collect::<HashMap<_, _>>();
         let mut new_root = hashmap![];
@@ -366,10 +368,21 @@ impl GarbageCollector {
                 }
 
                 self.copy_unsafe(old_addr, new_addr, (*s).size);
+                if new_addr as usize > uninitialized_starts[block_index].0 {
+                    uninitialized_starts[block_index] = (new_addr as usize, (*s).size);
+                }
                 last_moved.insert((old_addr, new_addr));
                 scan = self.next_in_bitmap(s);
             }
         }
+        let new_regions_map = self.heap.allocator.committed_regions.iter().map(|(layout, block)| {
+            let block_idx = self.index_of_heap_block(block);
+            let mut new_block = *block;
+            let (addr, size) = uninitialized_starts[block_idx];
+            new_block.unallocated_start = (addr + size) as *mut u8;
+            (*layout, new_block)
+        });
+        self.heap.allocator.committed_regions = LinkedHashMap::from_iter(new_regions_map);
         new_root
     }
 
@@ -387,6 +400,6 @@ impl GarbageCollector {
 
     pub unsafe fn collect(&mut self, roots: &mut [*mut ObjectHeader]) -> HashMap<*mut ObjectHeader, *mut ObjectHeader> {
         self.mark_living(&mut roots.to_vec());
-        self.update_reference_relocate(roots)
+        self.compact(roots)
     }
 }

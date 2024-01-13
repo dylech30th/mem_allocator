@@ -28,8 +28,7 @@ pub unsafe fn test_pointers() {
     }
 }
 
-pub unsafe fn test_reachability() {
-    let mut obj_mocker = ObjectMocker::new();
+pub unsafe fn test_reachability(obj_mocker: &mut ObjectMocker) {
     let mut allocated_ptrs = vec![];
     (0..1000).for_each(|_| {
         let res = obj_mocker.mock_and_allocate_object().unwrap();
@@ -39,10 +38,6 @@ pub unsafe fn test_reachability() {
     allocated_ptrs.iter().for_each(|x| {
         println!("{}", format_read_object(&obj_mocker.allocator.borrow_mut().heap.read_obj(*x).unwrap()));
     });
-
-    let allocated_ptrs_str = allocated_ptrs.iter().map(|x| {
-        format_read_object(&obj_mocker.allocator.borrow_mut().heap.read_obj(*x).unwrap())
-    }).collect::<Vec<_>>();
 
     let pointers = obj_mocker.allocator.borrow().heap.pointers_all(&allocated_ptrs).unwrap();
     let mut root_objects = (0..50).map(|_| rand::thread_rng().gen_range(0..1000)).map(|i| allocated_ptrs[i]).collect::<HashSet<*mut ObjectHeader>>().into_iter().collect::<Vec<*mut ObjectHeader>>();
@@ -64,8 +59,20 @@ pub unsafe fn test_reachability() {
     let new_roots = obj_mocker.allocator.borrow_mut().collect(&mut root_objects);
 
     obj_mocker.allocator.borrow_mut().mark_living(&mut new_roots.values().copied().collect::<Vec<_>>());
-    let set_bits = obj_mocker.allocator.borrow().all_marked_bits();
+    let mut set_bits = obj_mocker.allocator.borrow().all_marked_bits();
 
-    println!("bits met: {:x?}", set_bits);
+    set_bits.sort();
+    println!("bits met2: {:x?}", set_bits);
     println!("Tous les bits met: {}", set_bits.len());
+
+    (0..1000).for_each(|_| {
+        let res = obj_mocker.mock_and_allocate_object().unwrap();
+        allocated_ptrs.push(res.1);
+    });
+
+    obj_mocker.allocator.borrow_mut().mark_living(&mut new_roots.values().copied().collect::<Vec<_>>());
+
+
+    let new_roots = obj_mocker.allocator.borrow_mut().collect(&mut new_roots.values().copied().collect::<Vec<_>>());
+    println!();
 }

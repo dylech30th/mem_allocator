@@ -8,6 +8,7 @@
 #![feature(let_chains)]
 
 use crate::test::gc::{test_reachability};
+use crate::test::mocking::ObjectMocker;
 
 pub(crate) mod allocator;
 pub(crate) mod utils;
@@ -24,6 +25,7 @@ mod test;
 // effectuée dans la phase de fragementation du ramasse-miettes.
 fn main() {
     unsafe {
-        test_reachability()
+        let mut mocker = ObjectMocker::new();
+        test_reachability(&mut mocker);
     }
 }
