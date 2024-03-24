@@ -7,14 +7,14 @@
 #![feature(iter_collect_into)]
 #![feature(let_chains)]
 
-use crate::test::gc::{test_reachability};
+use crate::test::gc::test_reachability;
 use crate::test::mocking::ObjectMocker;
 
 pub(crate) mod allocator;
-pub(crate) mod utils;
-pub(crate) mod vm_types;
 mod gc;
 mod test;
+pub(crate) mod utils;
+pub(crate) mod vm_types;
 
 // On a en fait une raison plutôt raisonnable pour ne pas implementer le soi-disant "buddy algorithm"
 // D'abord, le buddy algorithm a pour effet de reduire la fragmentation de la mémoire, mais dans un heap

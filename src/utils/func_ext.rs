@@ -4,14 +4,14 @@ pub fn identity_once<T>(x: T) -> T {
     x
 }
 
-pub trait FuncExt : Sized {
+pub trait FuncExt: Sized {
     fn ignore(&self);
 
     fn apply<F: FnOnce(&mut Self)>(&mut self, f: F) -> &Self;
 }
 
-impl <T : Sized> FuncExt for T {
-    fn ignore(&self) { }
+impl<T: Sized> FuncExt for T {
+    fn ignore(&self) {}
 
     fn apply<F: FnOnce(&mut Self)>(&mut self, f: F) -> &Self {
         f(self);
@@ -27,11 +27,11 @@ pub trait OptionExt<T> {
     fn flat_map_none<F: FnOnce() -> Option<T>>(self, f: F) -> Option<T>;
 }
 
-impl <T> OptionExt<T> for Option<T> {
+impl<T> OptionExt<T> for Option<T> {
     fn to_result<E, F: FnOnce() -> E>(self, error: F) -> Result<T, E> {
         match self {
             Some(x) => Ok(x),
-            None => Err(error())
+            None => Err(error()),
         }
     }
 
@@ -42,7 +42,7 @@ impl <T> OptionExt<T> for Option<T> {
     fn flat_map_none<F: FnOnce() -> Option<T>>(self, f: F) -> Option<T> {
         match self {
             Some(_) => self,
-            None => f()
+            None => f(),
         }
     }
 }

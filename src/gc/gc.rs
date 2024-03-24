@@ -7,6 +7,7 @@ use std::rc::Rc;
 use linked_hash_map::LinkedHashMap;
 use maplit::{hashmap, hashset};
 use crate::allocator::heap_allocator::HeapBlock;
+use crate::allocator::heap_allocator::HeapSpan;
 use crate::allocator::object_allocator::{ObjectAllocator, ObjectHeader, ObjectHeaderHelper};
 use crate::gc::reachability::ObjectAllocatorExt;
 use crate::utils::func_ext::OptionExt;
